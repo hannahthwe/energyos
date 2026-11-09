@@ -21,12 +21,12 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 **Tests:** `.venv/bin/pip install pytest && .venv/bin/python -m pytest -q tests`
 
 ## Demo flow (2 minutes)
-1. As **Dana (analyst)**, click *Run scenario* on the Overview (suspicious V2H discharge).
+1. As **May (analyst)**, click *Run scenario* on the Overview (suspicious V2H discharge).
 2. *Live monitoring*: gateway brute-force → −9 kW discharge command → charger and independent meter both show the discharge.
 3. Open the incident: competing hypotheses, cyber→physical link, impact, firmware exposure.
 4. Tick evidence items → *Assign task + share selected* to VoltCharge.
-5. Switch identity to **Lena (VoltCharge)**: she sees only the shared items; acknowledge the task.
-6. Back as Dana: confirm attack, move to resolved, close. Check the *Audit log* (hash-chained).
+5. Switch identity to **Andy (VoltCharge)**: Andy sees only the shared items; acknowledge the task.
+6. Back as May: confirm attack, move to resolved, close. Check the *Audit log* (hash-chained).
 
 ## What each feature does
 | Feature | What it does |

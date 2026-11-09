@@ -25,11 +25,11 @@ ORGS = {
 VENDOR_ORG = {v["vendor"]: k for k, v in ORGS.items() if "vendor" in v}
 
 USERS = {
-    "u-analyst": {"name": "Dana Reyes", "role": "security_analyst", "org": "aegis"},
-    "u-operator": {"name": "Sam Okafor", "role": "fleet_operator", "org": "homegrid"},
-    "u-voltcharge": {"name": "Lena Brandt", "role": "oem_security", "org": "voltcharge"},
-    "u-storacell": {"name": "Kenji Mori", "role": "oem_security", "org": "storacell"},
-    "u-exec": {"name": "Priya Shah", "role": "executive", "org": "homegrid"},
+    "u-analyst": {"name": "May", "role": "security_analyst", "org": "aegis"},
+    "u-operator": {"name": "Sam", "role": "fleet_operator", "org": "homegrid"},
+    "u-voltcharge": {"name": "Andy", "role": "oem_security", "org": "voltcharge"},
+    "u-storacell": {"name": "Kay", "role": "oem_security", "org": "storacell"},
+    "u-exec": {"name": "Jo", "role": "executive", "org": "homegrid"},
 }
 PERMS = {
     "security_analyst": {"view_fleet", "view_incidents_all", "triage", "decide", "assign", "share", "simulate", "audit", "comment"},
