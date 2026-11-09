@@ -1,0 +1,83 @@
+{
+ "bomFormat": "CycloneDX",
+ "specVersion": "1.5",
+ "serialNumber": "urn:uuid:00000000-0000-4000-8000-073931226233",
+ "version": 1,
+ "metadata": {
+  "timestamp": "2026-10-01T00:00:00Z",
+  "supplier": {
+   "name": "homegrid"
+  },
+  "component": {
+   "type": "firmware",
+   "name": "HG-Hub 2",
+   "version": "5.1.0",
+   "bom-ref": "root"
+  }
+ },
+ "components": [
+  {
+   "type": "library",
+   "bom-ref": "hg-auth-service@3.0.4",
+   "name": "hg-auth-service",
+   "version": "3.0.4",
+   "purl": "pkg:generic/homegrid/hg-auth-service@3.0.4",
+   "properties": [
+    {
+     "name": "energyos:function",
+     "value": "hems_command_integrity"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "hg-device-broker@5.1.0",
+   "name": "hg-device-broker",
+   "version": "5.1.0",
+   "purl": "pkg:generic/homegrid/hg-device-broker@5.1.0",
+   "properties": [
+    {
+     "name": "energyos:function",
+     "value": "hems_command_integrity,device_communications"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "openssl@3.0.8",
+   "name": "openssl",
+   "version": "3.0.8",
+   "purl": "pkg:generic/openssl@3.0.8",
+   "properties": [
+    {
+     "name": "energyos:function",
+     "value": "device_communications"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "nginx@1.22.1",
+   "name": "nginx",
+   "version": "1.22.1",
+   "purl": "pkg:generic/nginx@1.22.1",
+   "properties": [
+    {
+     "name": "energyos:function",
+     "value": "device_communications"
+    }
+   ]
+  }
+ ],
+ "dependencies": [
+  {
+   "ref": "root",
+   "dependsOn": [
+    "hg-auth-service@3.0.4",
+    "hg-device-broker@5.1.0",
+    "openssl@3.0.8",
+    "nginx@1.22.1"
+   ]
+  }
+ ]
+}

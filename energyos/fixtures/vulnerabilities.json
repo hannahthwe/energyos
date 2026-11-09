@@ -1,0 +1,27 @@
+[
+ {
+  "id": "HYPO-2026-0001",
+  "hypothetical": true,
+  "title": "HYPOTHETICAL: improper authorisation of OCPP SetChargingProfile",
+  "component": "vc-ocpp-stack",
+  "fixed_in": "1.5.0",
+  "cvss": 8.1,
+  "description": "Clearly labelled hypothetical vulnerability for demonstration. An authenticated but unauthorised client could submit charging profiles, including V2H discharge setpoints.",
+  "functions": [
+   "ev_charging",
+   "v2h_discharge"
+  ]
+ },
+ {
+  "id": "HYPO-2026-0002",
+  "hypothetical": true,
+  "title": "HYPOTHETICAL: missing brute-force throttling on gateway local API",
+  "component": "hg-auth-service",
+  "fixed_in": "3.1.0",
+  "cvss": 7.3,
+  "description": "Clearly labelled hypothetical vulnerability for demonstration. Local API password authentication lacks rate limiting.",
+  "functions": [
+   "hems_command_integrity"
+  ]
+ }
+]

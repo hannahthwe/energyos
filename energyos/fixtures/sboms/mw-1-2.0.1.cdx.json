@@ -1,0 +1,55 @@
+{
+ "bomFormat": "CycloneDX",
+ "specVersion": "1.5",
+ "serialNumber": "urn:uuid:00000000-0000-4000-8000-238388983159",
+ "version": 1,
+ "metadata": {
+  "timestamp": "2026-10-01T00:00:00Z",
+  "supplier": {
+   "name": "meterwise"
+  },
+  "component": {
+   "type": "firmware",
+   "name": "MW-1",
+   "version": "2.0.1",
+   "bom-ref": "root"
+  }
+ },
+ "components": [
+  {
+   "type": "library",
+   "bom-ref": "mw-dlms@2.0.1",
+   "name": "mw-dlms",
+   "version": "2.0.1",
+   "purl": "pkg:generic/meterwise/mw-dlms@2.0.1",
+   "properties": [
+    {
+     "name": "energyos:function",
+     "value": "metering"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "mbedtls@3.4.0",
+   "name": "mbedtls",
+   "version": "3.4.0",
+   "purl": "pkg:generic/mbedtls@3.4.0",
+   "properties": [
+    {
+     "name": "energyos:function",
+     "value": "device_communications"
+    }
+   ]
+  }
+ ],
+ "dependencies": [
+  {
+   "ref": "root",
+   "dependsOn": [
+    "mw-dlms@2.0.1",
+    "mbedtls@3.4.0"
+   ]
+  }
+ ]
+}

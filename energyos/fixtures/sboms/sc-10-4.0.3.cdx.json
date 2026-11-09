@@ -1,0 +1,55 @@
+{
+ "bomFormat": "CycloneDX",
+ "specVersion": "1.5",
+ "serialNumber": "urn:uuid:00000000-0000-4000-8000-224196044784",
+ "version": 1,
+ "metadata": {
+  "timestamp": "2026-10-01T00:00:00Z",
+  "supplier": {
+   "name": "storacell"
+  },
+  "component": {
+   "type": "firmware",
+   "name": "SC-10",
+   "version": "4.0.3",
+   "bom-ref": "root"
+  }
+ },
+ "components": [
+  {
+   "type": "library",
+   "bom-ref": "sc-bms-core@4.0.3",
+   "name": "sc-bms-core",
+   "version": "4.0.3",
+   "purl": "pkg:generic/storacell/sc-bms-core@4.0.3",
+   "properties": [
+    {
+     "name": "energyos:function",
+     "value": "battery_management"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "mbedtls@2.16.12",
+   "name": "mbedtls",
+   "version": "2.16.12",
+   "purl": "pkg:generic/mbedtls@2.16.12",
+   "properties": [
+    {
+     "name": "energyos:function",
+     "value": "device_communications"
+    }
+   ]
+  }
+ ],
+ "dependencies": [
+  {
+   "ref": "root",
+   "dependsOn": [
+    "sc-bms-core@4.0.3",
+    "mbedtls@2.16.12"
+   ]
+  }
+ ]
+}

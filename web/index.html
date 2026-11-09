@@ -1,0 +1,603 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>EnergyOS Secure</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: control-room console — fixed nav rail, dense instrument panels, severity encoded as stripes and pills. */
+:root {
+  --bg: #0d1316; --surface: #141c20; --raised: #1a252a; --line: #26343b; --fg: #dde6e9; --muted: #8b9ca4;
+  --accent: #46b4d8; --accent-ink: #062330; --amber: #e8a33d;
+  --crit: #f0546a; --high: #f08a4b; --med: #e6c34a; --low: #6fb6e8; --info: #7e8f97; --ok: #4cc38a;
+  --s1: #46b4d8; --s2: #e8a33d; --s3: #4cc38a; --s4: #b28cf0; --s5: #8b9ca4;
+  --font-display: "IBM Plex Sans Condensed", "Arial Narrow", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) {
+  --bg: #f2f5f6; --surface: #ffffff; --raised: #f7fafb; --line: #d7e0e4; --fg: #13222a; --muted: #5a6d76;
+  --accent: #0f7fa8; --accent-ink: #ffffff; --amber: #b5711a;
+  --crit: #c72742; --high: #c4581c; --med: #9a7a08; --low: #2a7bb8; --info: #6b7b83; --ok: #1d8a57;
+  --s1: #0f7fa8; --s2: #b5711a; --s3: #1d8a57; --s4: #7a52c7; --s5: #6b7b83; color-scheme: light; } }
+:root[data-theme="light"] {
+  --bg: #f2f5f6; --surface: #ffffff; --raised: #f7fafb; --line: #d7e0e4; --fg: #13222a; --muted: #5a6d76;
+  --accent: #0f7fa8; --accent-ink: #ffffff; --amber: #b5711a;
+  --crit: #c72742; --high: #c4581c; --med: #9a7a08; --low: #2a7bb8; --info: #6b7b83; --ok: #1d8a57;
+  --s1: #0f7fa8; --s2: #b5711a; --s3: #1d8a57; --s4: #7a52c7; --s5: #6b7b83; color-scheme: light; }
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 var(--font-body); }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--surface); }
+button, input, select, textarea { font: inherit; color: inherit; }
+a { color: var(--accent); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.mono { font-family: var(--font-mono); font-size: 12.5px; }
+.muted { color: var(--muted); }
+.app { display: grid; grid-template-columns: 220px 1fr; min-height: 100%; }
+.rail { background: var(--surface); border-right: 1px solid var(--line); padding-block: 18px; padding-left: max(14px, env(safe-area-inset-left, 0px)); padding-right: 14px;
+  position: sticky; top: env(safe-area-inset-top, 0px); height: 100vh; display: flex; flex-direction: column; gap: 18px; }
+.brand { font-family: var(--font-display); font-weight: 600; font-size: 17px; letter-spacing: .01em; display: flex; align-items: center; gap: 9px; }
+.brand svg { flex: none; }
+.brand small { display: block; font: 500 10.5px var(--font-mono); color: var(--muted); letter-spacing: .08em; text-transform: uppercase; }
+.nav { display: flex; flex-direction: column; gap: 2px; }
+.nav a { display: flex; justify-content: space-between; align-items: center; padding: 7px 10px; border-radius: 6px; color: var(--muted); text-decoration: none; font-weight: 500; }
+.nav a:hover { background: var(--raised); color: var(--fg); }
+.nav a.on { background: var(--raised); color: var(--fg); box-shadow: inset 2px 0 0 var(--accent); }
+.nav .count { font: 500 11px var(--font-mono); background: var(--crit); color: #fff; border-radius: 9px; padding: 0 6px; }
+.rail-foot { margin-top: auto; font-size: 12px; color: var(--muted); display: grid; gap: 6px; }
+main { min-width: 0; padding-block: 18px 40px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.topbar { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; justify-content: space-between; margin-bottom: 18px; }
+.topbar h1 { font: 600 24px/1.2 var(--font-display); margin: 0; text-wrap: balance; }
+.who { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.chip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; font-size: 12px; color: var(--muted); background: var(--surface); white-space: nowrap; }
+.chip .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
+select, input[type=text], input[type=number], textarea { background: var(--raised); border: 1px solid var(--line); border-radius: 6px; padding: 6px 9px; min-width: 0; }
+textarea { width: 100%; resize: vertical; }
+.btn { background: var(--raised); border: 1px solid var(--line); border-radius: 6px; padding: 6px 12px; cursor: pointer; font-weight: 500; white-space: nowrap; }
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.btn.danger { border-color: var(--crit); color: var(--crit); }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.grid { display: grid; gap: 14px; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.kpi { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; }
+.kpi b { display: block; font: 600 26px/1.1 var(--font-display); font-variant-numeric: tabular-nums; }
+.kpi span { font-size: 11.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.kpi.alert b { color: var(--crit); }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; min-width: 0; }
+.panel h2 { font: 600 15px var(--font-display); letter-spacing: .02em; margin: 0 0 10px; display: flex; gap: 8px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.panel h3 { font: 600 13px var(--font-display); margin: 14px 0 6px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 14px; }
+.cols-2-1 { display: grid; grid-template-columns: 2fr 1fr; gap: 14px; }
+.scroll { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { text-align: left; font-weight: 500; color: var(--muted); font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+td { padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+tr.click { cursor: pointer; } tr.click:hover td { background: var(--raised); }
+.sev { display: inline-block; font: 500 11px var(--font-mono); text-transform: uppercase; padding: 1px 7px; border-radius: 4px; border: 1px solid currentColor; white-space: nowrap; }
+.sev-critical { color: var(--crit); } .sev-high { color: var(--high); } .sev-medium { color: var(--med); } .sev-low { color: var(--low); } .sev-info { color: var(--info); }
+.stripe { border-left: 3px solid var(--info); } .stripe-critical { border-left-color: var(--crit); } .stripe-high { border-left-color: var(--high); } .stripe-medium { border-left-color: var(--med); } .stripe-low { border-left-color: var(--low); }
+.tag { display: inline-block; font-size: 11.5px; padding: 0 7px; border-radius: 4px; background: var(--raised); border: 1px solid var(--line); margin: 1px 3px 1px 0; white-space: nowrap; }
+.tag.cyber { color: var(--s4); } .tag.physical { color: var(--s2); } .tag.context { color: var(--ok); } .tag.supply_chain { color: var(--s1); }
+.hyp { display: grid; grid-template-columns: minmax(150px, 1.2fr) 2fr 44px; gap: 10px; align-items: center; padding: 5px 0; }
+.bar { height: 8px; background: var(--raised); border-radius: 4px; overflow: hidden; border: 1px solid var(--line); }
+.bar i { display: block; height: 100%; background: var(--accent); }
+.hyp.top .bar i { background: var(--amber); }
+.hyp small { grid-column: 1 / -1; color: var(--muted); font-size: 12px; margin-top: -3px; }
+.list { display: grid; gap: 8px; }
+.item { background: var(--raised); border: 1px solid var(--line); border-radius: 6px; padding: 9px 11px; min-width: 0; }
+.item .meta { font-size: 12px; color: var(--muted); display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.notice { border: 1px dashed var(--line); border-radius: 6px; padding: 9px 12px; color: var(--muted); font-size: 13px; }
+.notice.warn { border-color: var(--amber); color: var(--fg); }
+.devgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; }
+.dev { background: var(--raised); border: 1px solid var(--line); border-radius: 6px; padding: 9px 11px; font-size: 12.5px; }
+.dev b { font-family: var(--font-display); font-size: 14px; }
+.dev .big { font: 600 18px var(--font-display); font-variant-numeric: tabular-nums; }
+.off { color: var(--crit); }
+.chart { width: 100%; height: auto; display: block; }
+.chart text { fill: var(--muted); font: 10px var(--font-mono); }
+.chart .grid line { stroke: var(--line); }
+.legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
+.legend i { display: inline-block; width: 12px; height: 3px; vertical-align: middle; margin-right: 5px; border-radius: 2px; }
+.steps { margin: 0; padding-left: 20px; display: grid; gap: 8px; }
+.steps li::marker { font-family: var(--font-mono); color: var(--accent); }
+.timeline { position: relative; display: grid; gap: 8px; }
+.ev { display: grid; grid-template-columns: 22px 74px 1fr; gap: 8px; align-items: start; }
+.ev input { margin-top: 3px; }
+.toast { position: fixed; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); background: var(--fg); color: var(--bg); padding: 9px 14px; border-radius: 6px; font-weight: 500; z-index: 20; max-width: calc(100% - 32px); }
+.modal { position: fixed; inset: 0; background: rgb(0 0 0 / .5); display: grid; place-items: center; z-index: 30; padding: 16px; }
+.modal .panel { width: min(900px, 100%); max-height: 85vh; overflow: auto; }
+pre { white-space: pre-wrap; word-break: break-word; font: 12px var(--font-mono); background: var(--raised); border: 1px solid var(--line); border-radius: 6px; padding: 10px; max-height: 60vh; overflow: auto; }
+.ok { color: var(--ok); } .bad { color: var(--crit); }
+@media (max-width: 860px) {
+  .app { grid-template-columns: 1fr; }
+  .rail { position: static; height: auto; flex-direction: column; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); border-right: 0; border-bottom: 1px solid var(--line); }
+  .nav { flex-direction: row; flex-wrap: wrap; }
+  .rail-foot { display: none; }
+  .cols-2-1 { grid-template-columns: 1fr; }
+  .cols { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: no-preference) { .bar i { transition: width .4s ease; } }
+</style>
+
+<div class="app">
+  <aside class="rail">
+    <div class="brand">
+      <svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true"><path d="M13 2 4 6v6c0 6 4 10 9 12 5-2 9-6 9-12V6z" fill="none" stroke="var(--accent)" stroke-width="2"/><path d="m14 7-5 7h4l-1 5 5-7h-4z" fill="var(--amber)"/></svg>
+      <div>EnergyOS Secure<small>Cyber-physical SOC</small></div>
+    </div>
+    <nav class="nav" id="nav"></nav>
+    <div class="rail-foot">
+      <div id="mode-chip"></div>
+      <div>All vendors, devices and incidents are simulated. Vulnerabilities prefixed HYPO are hypothetical.</div>
+    </div>
+  </aside>
+  <main>
+    <div class="topbar">
+      <h1 id="page-title">Overview</h1>
+      <div class="who">
+        <span class="chip" id="clock"><span class="dot"></span>sim t=0 s</span>
+        <label class="muted" for="identity" style="font-size:12px">Signed in as</label>
+        <select id="identity" aria-label="Demo identity"></select>
+      </div>
+    </div>
+    <div id="view"></div>
+  </main>
+</div>
+<div id="toast" class="toast" hidden></div>
+<div id="modal" class="modal" hidden></div>
+
+<script>
+(() => {
+"use strict";
+// ------------------------------------------------------------------ transport
+let MODE = "server", TOKEN = null, ME = null, USERS = [], ORGS = [];
+const S = { inst: "inst-001", incident: null, evSel: new Set(), confirmReset: false };
+async function detectMode() {
+  if (globalThis.EnergyOSEngine) return "local";
+  try {
+    const r = await fetch("api/users", { cache: "no-store" });
+    if (r.ok && (r.headers.get("content-type") || "").includes("json")) return "server";
+  } catch (e) {}
+  await new Promise((res, rej) => { const s = document.createElement("script"); s.src = "engine.js"; s.onload = res; s.onerror = rej; document.head.appendChild(s); });
+  return "local";
+}
+async function api(method, path, body, query) {
+  let status, data;
+  if (MODE === "local") {
+    ({ status, data } = await EnergyOSEngine.request(method, path, query || {}, body || {}, TOKEN));
+  } else {
+    const qs = query ? "?" + new URLSearchParams(query) : "";
+    const r = await fetch(path.slice(1) + qs, { method, headers: { "Content-Type": "application/json", ...(TOKEN ? { Authorization: "Bearer " + TOKEN } : {}) },
+      body: method === "POST" ? JSON.stringify(body || {}) : undefined });
+    status = r.status; data = await r.json();
+  }
+  if (status >= 400) throw new Error(data.error || "Request failed (" + status + ")");
+  return data;
+}
+const GET = (p, q) => api("GET", p, null, q), POST = (p, b) => api("POST", p, b);
+
+// ------------------------------------------------------------------ helpers
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const sev = (s) => `<span class="sev sev-${esc(s)}">${esc(s)}</span>`;
+const kw = (w) => (w == null ? "—" : (w / 1000).toFixed(2) + " kW");
+const hhmmss = (ts) => esc(String(ts || "").slice(11, 19));
+const can = (perm) => ME && ME.permissions.includes(perm);
+const pretty = (s) => esc(String(s || "").replace(/_/g, " "));
+function toast(msg) { const t = document.getElementById("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toast._t); toast._t = setTimeout(() => (t.hidden = true), 2600); }
+function storeGet(k) { try { return sessionStorage.getItem(k); } catch (e) { return null; } }
+function storeSet(k, v) { try { sessionStorage.setItem(k, v); } catch (e) {} }
+
+function lineChart(rows, keys, { height = 220, unit = "kW", scale = 1000 } = {}) {
+  const W = 760, H = height, L = 52, R = 12, T = 10, B = 24;
+  const vals = rows.flatMap((r) => keys.map((k) => r[k.key])).filter((v) => v != null && isFinite(v)).map((v) => v / scale);
+  if (!vals.length) return `<div class="notice">Waiting for telemetry…</div>`;
+  let lo = Math.min(0, ...vals), hi = Math.max(0, ...vals);
+  if (hi - lo < 1e-6) hi = lo + 1;
+  const step = niceStep((hi - lo) / 4); lo = Math.floor(lo / step) * step; hi = Math.ceil(hi / step) * step;
+  const x = (i) => L + (rows.length <= 1 ? 0 : (i / (rows.length - 1)) * (W - L - R));
+  const y = (v) => T + (1 - (v - lo) / (hi - lo)) * (H - T - B);
+  let g = `<g class="grid">`;
+  for (let v = lo; v <= hi + 1e-9; v += step) g += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" ${Math.abs(v) < 1e-9 ? 'stroke-width="1.6"' : ""}/><text x="${L - 6}" y="${y(v) + 3}" text-anchor="end">${+v.toFixed(2)} ${unit}</text>`;
+  g += `</g>`;
+  const idx = [0, Math.floor((rows.length - 1) / 2), rows.length - 1];
+  const xl = [...new Set(idx)].map((i) => `<text x="${x(i)}" y="${H - 6}" text-anchor="${i === 0 ? "start" : i === rows.length - 1 ? "end" : "middle"}">${esc(rows[i].ts)}</text>`).join("");
+  const paths = keys.map((k) => {
+    let d = "", pen = false, last = null;
+    rows.forEach((r, i) => { const v = r[k.key]; if (v == null) { pen = false; return; } d += (pen ? "L" : "M") + x(i).toFixed(1) + " " + y(v / scale).toFixed(1); pen = true; last = [x(i), y(v / scale)]; });
+    return `<path d="${d}" style="fill:none;stroke:${k.color};stroke-width:${k.width || 1.8}px${k.dash ? `;stroke-dasharray:${k.dash}` : ""}"/>` + (last ? `<circle cx="${last[0]}" cy="${last[1]}" r="3" style="fill:${k.color}"/>` : "");
+  }).join("");
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(keys.map((k) => k.label).join(", "))}">${g}${xl}${paths}</svg>
+    <div class="legend">${keys.map((k) => `<span><i style="background:${k.color}"></i>${esc(k.label)}</span>`).join("")}</div>`;
+}
+function niceStep(raw) { const p = Math.pow(10, Math.floor(Math.log10(raw || 1))); const n = raw / p; return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10) * p; }
+function barChart(rows) {
+  if (!rows.length) return `<div class="notice">No detections yet. Run a scenario in the Simulation lab.</div>`;
+  const W = 760, H = 170, L = 30, B = 22, T = 8;
+  const max = Math.max(1, ...rows.map((r) => r.cyber + r.physical));
+  const bw = (W - L - 8) / Math.max(rows.length, 20);
+  const y = (v) => T + (1 - v / max) * (H - T - B);
+  let s = `<g class="grid"><line x1="${L}" x2="${W}" y1="${y(0)}" y2="${y(0)}"/><line x1="${L}" x2="${W}" y1="${y(max)}" y2="${y(max)}"/><text x="${L - 5}" y="${y(max) + 3}" text-anchor="end">${max}</text><text x="${L - 5}" y="${y(0) + 3}" text-anchor="end">0</text></g>`;
+  rows.forEach((r, i) => {
+    const x0 = L + i * bw + 2, w = Math.max(2, bw - 4);
+    s += `<rect x="${x0}" y="${y(r.physical)}" width="${w}" height="${y(0) - y(r.physical)}" style="fill:var(--s2)"><title>${esc(r.time)} physical ${r.physical}</title></rect>`;
+    s += `<rect x="${x0}" y="${y(r.physical + r.cyber)}" width="${w}" height="${y(r.physical) - y(r.physical + r.cyber)}" style="fill:var(--s4)"><title>${esc(r.time)} cyber ${r.cyber}</title></rect>`;
+    if (i === 0 || i === rows.length - 1) s += `<text x="${x0 + w / 2}" y="${H - 6}" text-anchor="middle">${esc(r.time)}</text>`;
+  });
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Detections per 30 seconds">${s}</svg>
+    <div class="legend"><span><i style="background:var(--s4)"></i>Cyber findings</span><span><i style="background:var(--s2)"></i>Physical findings</span></div>`;
+}
+
+const ROLE_GUIDE = [
+  { id: "u-analyst", name: "Dana Reyes", org: "Aegis Grid Security Ops", role: "Security analyst", see: "All telemetry, findings, correlation, incidents, supply chain, audit",
+    act: "Run scenarios, triage, confirm/reject attack, approve remediation, assign vendor tasks, share evidence, close", not: "Control devices (never automated)" },
+  { id: "u-operator", name: "Sam Okafor", org: "HomeGrid HEMS", role: "HEMS fleet operator", see: "Own fleet telemetry, incidents, coordination tasks",
+    act: "Comment, respond to tasks assigned to HomeGrid", not: "Confirm attacks, change incident status, share evidence" },
+  { id: "u-voltcharge", name: "Lena Brandt", org: "VoltCharge Systems", role: "OEM product security", see: "Own firmware SBOMs and exposure (aggregate); only incidents and evidence shared with VoltCharge",
+    act: "Acknowledge and complete tasks, add shared notes, confirm or rule out vulnerability impact on own products", not: "See installations, other vendors' data or unshared findings" },
+  { id: "u-storacell", name: "Kenji Mori", org: "StoraCell Batteries", role: "OEM product security", see: "Own battery firmware only; nothing from VoltCharge cases unless shared",
+    act: "Same as other OEMs, for StoraCell products", not: "See other OEMs' cases" },
+  { id: "u-exec", name: "Priya Shah", org: "HomeGrid HEMS", role: "Executive viewer", see: "Overview KPIs and trends", act: "Read only", not: "Open incidents or raw evidence" },
+];
+
+// ------------------------------------------------------------------ views
+const VIEWS = {
+  overview: { title: "Overview", perm: null, render: renderOverview },
+  live: { title: "Live monitoring", perm: "view_fleet", render: renderLive },
+  correlation: { title: "Cyber-physical correlation", perm: "view_incidents_all", render: renderCorrelation },
+  incidents: { title: "Incidents", perm: ["view_incidents_all", "view_shared"], render: renderIncidents },
+  supply: { title: "Supply-chain intelligence", perm: ["view_fleet", "vex"], render: renderSupply },
+  coordination: { title: "Vendor coordination", perm: ["view_incidents_all", "task_respond"], render: renderCoordination },
+  simulation: { title: "Simulation lab", perm: "simulate", render: renderSimulation },
+  audit: { title: "Audit log", perm: "audit", render: renderAudit },
+};
+const allowed = (v) => !v.perm || [].concat(v.perm).some(can);
+function currentView() {
+  const h = location.hash.slice(1);
+  if (h.startsWith("incident-")) { S.incident = +h.slice(9); return "incidents"; }
+  S.incident = null;
+  return VIEWS[h] && allowed(VIEWS[h]) ? h : "overview";
+}
+let navCounts = {};
+function renderNav(active) {
+  document.getElementById("nav").innerHTML = Object.entries(VIEWS).filter(([, v]) => allowed(v)).map(([k, v]) =>
+    `<a href="#${k}" class="${k === active ? "on" : ""}">${esc(v.title)}${navCounts[k] ? `<span class="count">${navCounts[k]}</span>` : ""}</a>`).join("");
+}
+
+async function renderOverview() {
+  const o = await GET("/api/overview");
+  navCounts.incidents = o.awaiting_review || 0;
+  const critHigh = (o.by_severity.critical || 0) + (o.by_severity.high || 0);
+  let incs = [];
+  if (can("view_incidents_all") || can("view_shared")) incs = (await GET("/api/incidents")).filter((i) => !["closed", "duplicate"].includes(i.status)).slice(0, 6);
+  return `
+  <div class="grid">
+    <div class="kpis">
+      <div class="kpi"><span>Installations</span><b>${o.installations}</b></div>
+      <div class="kpi"><span>Devices online</span><b>${o.devices_online}/${o.devices}</b></div>
+      <div class="kpi"><span>Vendors</span><b>${o.vendors}</b></div>
+      <div class="kpi ${o.active_incidents ? "alert" : ""}"><span>Active incidents</span><b>${o.active_incidents}</b></div>
+      <div class="kpi ${critHigh ? "alert" : ""}"><span>Critical / high</span><b>${critHigh}</b></div>
+      <div class="kpi"><span>Awaiting review</span><b>${o.awaiting_review}</b></div>
+      <div class="kpi"><span>Awaiting OEM</span><b>${o.awaiting_oem}</b></div>
+      <div class="kpi"><span>Devices on vulnerable firmware</span><b>${o.exposed_devices}</b></div>
+    </div>
+    <div class="cols-2-1">
+      <div class="panel"><h2>Detections over time <span class="muted mono">per 30 s</span></h2>${barChart(o.trend)}</div>
+      <div class="panel"><h2>Pitch walkthrough</h2>
+        <ol class="steps">
+          <li>As <b>Dana (analyst)</b>, run <i>Suspicious V2H discharge</i>. <button class="btn primary" data-act="demo-run">Run scenario</button></li>
+          <li>Watch the gateway brute-force, the −9 kW command and the measured discharge in <a href="#live">Live monitoring</a>.</li>
+          <li>Open the correlated incident: hypotheses, impact, firmware exposure. <button class="btn" data-act="demo-open">Open latest incident</button></li>
+          <li>Assign an investigation to VoltCharge and share selected evidence only.</li>
+          <li>Switch to <b>Lena (VoltCharge)</b>: she sees only what was shared. <button class="btn" data-act="as" data-user="u-voltcharge">Switch to Lena</button></li>
+          <li>Back as Dana: record the decision, resolve, close. Every step lands in the <a href="#audit">audit log</a>. <button class="btn" data-act="as" data-user="u-analyst">Switch to Dana</button></li>
+        </ol>
+      </div>
+    </div>
+    <div class="cols">
+      <div class="panel"><h2>Open incidents</h2>${incs.length ? `<div class="list">${incs.map((i) => `
+        <a class="item stripe stripe-${esc(i.severity)}" href="#incident-${i.id}" style="text-decoration:none;color:inherit">
+          <div class="row">${sev(i.severity)}<b class="mono">${esc(i.code)}</b><span class="tag">${pretty(i.status)}</span></div>
+          <div>${esc(i.title)}</div></a>`).join("")}</div>` : `<div class="notice">No open incidents.</div>`}</div>
+      <div class="panel"><h2>Recent activity</h2><div class="list">${o.recent_audit.map((r) => `
+        <div class="item"><div class="meta"><span class="mono">${hhmmss(r.at)}</span><span>${esc(r.who)}</span></div><div class="mono">${esc(r.action)} · ${esc(r.resource)}</div></div>`).join("") || `<div class="notice">Nothing yet.</div>`}</div></div>
+    </div>
+    <div class="panel"><h2>Who sees what <span class="muted" style="font-size:12px;font-weight:400">switch identity at the top right · enforced by the backend</span></h2>
+      <div class="scroll"><table><thead><tr><th>User</th><th>Role</th><th>Can see</th><th>Can do</th><th>Cannot</th></tr></thead><tbody>
+      ${ROLE_GUIDE.map((r) => `<tr ${ME.id === r.id ? 'style="box-shadow:inset 3px 0 0 var(--accent)"' : ""}><td><b>${esc(r.name)}</b><div class="muted">${esc(r.org)}</div></td><td>${esc(r.role)}</td><td>${esc(r.see)}</td><td>${esc(r.act)}</td><td class="muted">${esc(r.not)}</td></tr>`).join("")}
+      </tbody></table></div></div>
+  </div>`;
+}
+
+async function renderLive() {
+  const d = await GET("/api/live", { installation: S.inst });
+  const devs = d.devices.map((x) => {
+    const p = x.last.active_power_w ?? x.last.grid_power_w;
+    const extra = x.kind === "meter" ? `EV circuit ${kw(x.last.ev_circuit_power_w)}` : x.last.soc_pct != null ? `SOC ${x.last.soc_pct}%` : x.last.soc_estimate_pct != null ? `EV SOC est. ${x.last.soc_estimate_pct}%` : x.kind === "gateway" ? `CPU ${x.last.cpu_pct ?? "—"}%` : `${x.last.temperature_c ?? "—"} °C`;
+    return `<div class="dev"><div class="row" style="justify-content:space-between"><b>${esc(x.id)}</b>${x.online ? `<span class="tag">${esc(x.state)}</span>` : `<span class="tag off">offline</span>`}</div>
+      <div class="muted">${esc(x.vendor)} · ${esc(x.model)} · fw ${esc(x.firmware)}</div>
+      <div class="big">${p != null ? kw(p) : "&nbsp;"}</div><div class="muted">${esc(extra)}</div></div>`;
+  }).join("");
+  return `<div class="grid">
+    <div class="row"><label for="inst">Installation</label><select id="inst" data-act="inst">${d.installations.map((i) => `<option value="${esc(i.id)}" ${i.id === S.inst ? "selected" : ""}>${esc(i.id)} · ${esc(i.name)} · charger fw ${esc(i.charger_fw)}</option>`).join("")}</select>
+      <span class="muted" style="font-size:12px">Sign convention: positive = drawing from the home bus, negative = injecting (discharge, PV).</span></div>
+    <div class="devgrid">${devs}</div>
+    <div class="panel"><h2>Power flow <span class="muted mono">last 120 s</span></h2>${lineChart(d.series, [
+      { key: "charger_reported_w", label: "EV charger (reported)", color: "var(--s1)", width: 2.4 },
+      { key: "meter_ev_circuit_w", label: "Meter EV circuit (independent)", color: "var(--s2)", dash: "5 4" },
+      { key: "battery_w", label: "Battery", color: "var(--s3)" }, { key: "pv_w", label: "Solar PV", color: "var(--s4)" },
+      { key: "grid_w", label: "Grid import", color: "var(--s5)" }])}</div>
+    <div class="cols">
+      <div class="panel"><h2>Detections</h2><div class="list">${d.detections.map(detItem).join("") || `<div class="notice">No findings for this installation.</div>`}</div></div>
+      <div class="panel"><h2>Cyber event stream</h2><div class="scroll"><table><thead><tr><th>Time</th><th>Device</th><th>Event</th><th>Client</th><th>Detail</th></tr></thead><tbody>
+        ${d.events.map((e) => `<tr><td class="mono">${hhmmss(e.ts)}</td><td class="mono">${esc(e.device_id)}</td><td>${pretty(e.event_type)}</td><td class="mono">${esc(e.client_id || "")}</td><td class="muted mono">${esc(Object.entries(e.details).map(([k, v]) => k + "=" + v).join(" ").slice(0, 90))}</td></tr>`).join("")}
+      </tbody></table></div></div>
+    </div></div>`;
+}
+function detItem(x) {
+  return `<div class="item stripe stripe-${esc(x.severity)}"><div class="meta">${sev(x.severity)}<span class="tag ${esc(x.category)}">${esc(x.category)}</span><span class="mono">${hhmmss(x.ts)}</span><span class="mono">${esc(x.device_id)}</span><span class="mono">${esc(x.rule)}</span>${x.occurrences > 1 ? `<span>×${x.occurrences}</span>` : ""}${x.method === "statistical" ? `<span>z=${esc(x.score)}</span>` : ""}</div>
+    <div><b>${esc(x.title)}</b> — ${esc(x.explanation)}</div></div>`;
+}
+function hypotheses(h) {
+  return h.map((x, i) => `<div class="hyp ${i === 0 ? "top" : ""}"><span>${esc(x.label)}</span><div class="bar"><i style="width:${Math.round(x.support * 100)}%"></i></div><span class="mono">${Math.round(x.support * 100)}%</span>
+    ${x.for.length || x.against.length ? `<small>${x.for.length ? "For: " + esc(x.for.join("; ")) : ""}${x.against.length ? (x.for.length ? " · " : "") + "Against: " + esc(x.against.join("; ")) : ""}</small>` : ""}</div>`).join("");
+}
+
+async function renderCorrelation() {
+  const gs = await GET("/api/correlations");
+  return `<div class="grid"><div class="notice">Groups detections by installation and a 180 s event-time window, links commands to measured physical effects, and merges patterns that repeat across installations sharing firmware. Support scores rank explanations; they are not attack probabilities.</div>
+  ${gs.map((g) => `<div class="panel stripe stripe-${esc(g.severity)}">
+    <h2><span class="row">${sev(g.severity)} Group ${g.id} · ${esc(g.kind)} · ${esc(g.installations.join(", "))}</span>
+      ${g.incident ? `<a class="btn" href="#incident-${esc(g.incident.split("-").pop() * 1)}">${esc(g.incident)}</a>` : `<span class="chip">below incident threshold</span>`}</h2>
+    <div class="row" style="margin-bottom:8px">${g.vendors.map((v) => `<span class="tag">${esc(v)}</span>`).join("")}${g.devices.map((v) => `<span class="tag mono">${esc(v)}</span>`).join("")}<span class="muted mono">${hhmmss(g.first_seen)}–${hhmmss(g.last_seen)}</span></div>
+    <div class="cols"><div>${hypotheses(g.hypotheses)}<div class="muted" style="font-size:12px">Confidence: ${esc(g.confidence || "—")}</div>
+      ${g.links.map((l) => `<div class="notice warn" style="margin-top:8px">Cyber → physical: ${esc(l.text)}</div>`).join("")}</div>
+      <div class="list">${g.detections.slice(-5).reverse().map(detItem).join("")}</div></div>
+  </div>`).join("") || `<div class="notice">No correlation groups yet. Run a scenario in the Simulation lab.</div>`}</div>`;
+}
+
+async function renderIncidents() {
+  if (S.incident) return renderIncident(S.incident);
+  const list = await GET("/api/incidents");
+  return `<div class="panel"><div class="scroll"><table><thead><tr><th>Incident</th><th>Severity</th><th>Status</th><th>Title</th><th>Human verdict</th><th>Last activity</th></tr></thead><tbody>
+    ${list.map((i) => `<tr class="click" data-act="open-inc" data-id="${i.id}"><td class="mono">${esc(i.code)}</td><td>${sev(i.severity)}</td><td><span class="tag">${pretty(i.status)}</span>${i.merged_into ? ` <span class="muted">→ ${esc(i.merged_into)}</span>` : ""}</td><td>${esc(i.title)}</td><td class="muted">${esc(i.attack_confirmation)}</td><td class="mono">${hhmmss(i.last_activity)}</td></tr>`).join("")}
+  </tbody></table></div>${list.length ? "" : `<div class="notice">${can("view_shared") ? "No investigations have been shared with your organisation yet." : "No incidents yet. Run a scenario in the Simulation lab."}</div>`}</div>`;
+}
+
+async function renderIncident(id) {
+  const i = await GET(`/api/incidents/${id}`);
+  if (i.restricted_view) return renderRestrictedIncident(i);
+  const orgs = ORGS.filter((o) => o.type !== "security_provider");
+  const evidence = [...i.evidence].sort((a, b) => String(a.ts || "~").localeCompare(String(b.ts || "~")));
+  const series = Object.entries(i.telemetry);
+  const colors = ["var(--s1)", "var(--s3)", "var(--s4)", "var(--s2)"];
+  const rows = {};
+  series.forEach(([k, pts]) => pts.forEach((p) => ((rows[p.ts] = rows[p.ts] || { ts: p.ts })[k] = p.power_w)));
+  const chartRows = Object.values(rows).sort((a, b) => (a.ts < b.ts ? -1 : 1));
+  const keys = series.map(([k], n) => ({ key: k, label: k, color: k.includes("EV circuit") ? "var(--s2)" : colors[n % 3], dash: k.includes("EV circuit") ? "5 4" : null }));
+  return `<div class="grid">
+    <div class="row"><a href="#incidents" class="btn">← All incidents</a><button class="btn" data-act="export" data-id="${i.id}">Export evidence (JSON)</button></div>
+    <div class="panel stripe stripe-${esc(i.severity)}">
+      <h2><span class="row">${sev(i.severity)} <span class="mono">${esc(i.code)}</span> <span class="tag">${pretty(i.status)}</span> <span class="tag">${esc(i.kind)}</span></span><span class="muted" style="font-size:12px">Human verdict: <b>${esc(i.attack_confirmation)}</b></span></h2>
+      <div style="font:600 18px var(--font-display);margin-bottom:4px">${esc(i.title)}</div>
+      <div>${esc(i.summary)}</div>
+      ${i.merged_into ? `<div class="notice warn">Deduplicated into ${esc(i.merged_into)}.</div>` : ""}
+      <div class="row" style="margin-top:8px">${i.vendors.map((v) => `<span class="tag">${esc(v)}</span>`).join("")}${i.clients.map((c) => `<span class="tag mono">client ${esc(c)}</span>`).join("")}<span class="muted mono">${hhmmss(i.first_seen)}–${hhmmss(i.last_seen)}</span></div>
+    </div>
+    <div class="cols">
+      <div class="panel"><h2>Competing hypotheses</h2>${hypotheses(i.hypotheses)}<div class="muted" style="font-size:12px;margin-top:4px">Confidence: ${esc(i.confidence)}. Support is relative evidence weight, not a probability. Only a human can confirm an attack.</div>
+        ${i.links.map((l) => `<div class="notice warn" style="margin-top:8px">Cyber → physical: ${esc(l.text)}</div>`).join("")}</div>
+      <div class="panel"><h2>Operational impact</h2><div class="scroll"><table><thead><tr><th>Device</th><th>Observed in telemetry</th><th>Functions possibly affected</th></tr></thead><tbody>
+        ${i.impact.map((x) => `<tr><td class="mono">${esc(x.device)}<div class="muted">${esc(x.vendor)}</div></td><td>${esc(x.observed || "—")}</td><td>${x.functions_potentially_affected.map((f) => `<span class="tag">${esc(f)}</span>`).join("")}</td></tr>`).join("")}</tbody></table></div></div>
+    </div>
+    ${chartRows.length ? `<div class="panel"><h2>Physical evidence <span class="muted mono">incident window</span></h2>${lineChart(chartRows, keys)}</div>` : ""}
+    <div class="cols-2-1">
+      <div class="panel"><h2>Evidence timeline <span class="muted" style="font-size:12px;font-weight:400">tick items to share with a vendor</span></h2><div class="timeline">
+        ${evidence.map((e) => `<label class="ev"><input type="checkbox" data-act="evsel" value="${esc(e.id)}" ${S.evSel.has(e.id) ? "checked" : ""}><span class="mono muted">${e.ts ? hhmmss(e.ts) : "context"}</span>
+          <div class="item stripe stripe-${esc(e.severity)}"><div class="meta">${sev(e.severity)}<span class="tag ${esc(e.category)}">${esc(e.category)}</span><span class="mono">${esc(e.device)}</span>${e.rule ? `<span class="mono">${esc(e.rule)}</span>` : ""}<span>${esc(e.kind)}</span>${Object.entries(i.shares).filter(([, ids]) => ids.includes(e.id)).map(([o]) => `<span class="tag">shared: ${esc(o)}</span>`).join("")}</div>
+          <div><b>${esc(e.title)}</b> — ${esc(e.explanation)}</div>
+          ${e.raw ? `<div class="mono muted" style="margin-top:4px">${e.raw.slice(-3).map((r) => esc(r.summary)).join("<br>")}</div>` : ""}</div></label>`).join("")}</div></div>
+      <div class="grid" style="align-content:start">
+        <div class="panel"><h2>Recommended actions</h2><ul style="margin:0;padding-left:18px">${i.recommended.actions.map((a) => `<li>${esc(a)}</li>`).join("")}</ul><div class="muted" style="font-size:12px;margin-top:6px">${esc(i.recommended.note)}</div></div>
+        ${can("triage") ? `<div class="panel"><h2>Human review</h2>
+          <label for="reason" class="muted" style="font-size:12px">Rationale (recorded in the audit log)</label>
+          <textarea id="reason" rows="2" placeholder="e.g. Resident confirmed they did not request discharge"></textarea>
+          <h3>Decision</h3><div class="row">
+            <button class="btn danger" data-act="decide" data-d="confirm_attack" data-id="${i.id}">Confirm attack</button>
+            <button class="btn" data-act="decide" data-d="reject_attack" data-id="${i.id}">Not an attack</button>
+            <button class="btn" data-act="decide" data-d="approve_remediation" data-id="${i.id}">Approve remediation</button></div>
+          <h3>Move to</h3><div class="row">${i.allowed_transitions.map((t) => `<button class="btn" data-act="status" data-s="${esc(t)}" data-id="${i.id}">${pretty(t)}</button>`).join("") || `<span class="muted">No transitions</span>`}</div>
+        </div>
+        <div class="panel"><h2>Coordinate with a vendor</h2>
+          <div class="grid" style="gap:8px">
+            <select id="task-org" aria-label="Organisation">${orgs.map((o) => `<option value="${esc(o.id)}">${esc(o.name)} (${esc(o.type.replace("_", " "))})</option>`).join("")}</select>
+            <input type="text" id="task-title" placeholder="Task, e.g. Review OCPP command logs for cha-001" aria-label="Task title">
+            <div class="row"><label for="task-due" class="muted">Due in (hours)</label><input type="number" id="task-due" value="48" min="1" style="width:80px"></div>
+            <div class="muted" style="font-size:12px">${S.evSel.size} evidence item(s) selected — only these become visible to the vendor.</div>
+            <div class="row"><button class="btn primary" data-act="task" data-id="${i.id}">Assign task + share selected</button><button class="btn" data-act="share" data-id="${i.id}">Share selected only</button></div>
+          </div></div>` : ""}
+        ${i.tasks.length ? `<div class="panel"><h2>Tasks</h2><div class="list">${i.tasks.map(taskItem).join("")}</div></div>` : ""}
+        <div class="panel"><h2>Notes</h2><div class="list">${i.notes.map((n) => `<div class="item"><div class="meta"><b>${esc(n.by)}</b><span>${esc(n.org)}</span><span class="mono">${hhmmss(n.at)}</span><span class="tag">${esc(n.visibility)}</span></div>${esc(n.body)}</div>`).join("")}</div>
+          ${can("comment") ? `<textarea id="note" rows="2" placeholder="Add an analyst note" style="margin-top:8px"></textarea><div class="row" style="margin-top:6px"><button class="btn" data-act="note" data-id="${i.id}">Add note</button></div>` : ""}</div>
+        <div class="panel"><h2>Decisions &amp; history</h2><div class="list">
+          ${i.decisions.map((d) => `<div class="item"><div class="meta"><b>${esc(d.by)}</b><span class="mono">${hhmmss(d.at)}</span></div><b>${pretty(d.decision)}</b> — ${esc(d.rationale)}</div>`).join("")}
+          ${i.history.map((h) => `<div class="item"><div class="meta"><b>${esc(h.by)}</b><span class="mono">${hhmmss(h.at)}</span></div>${pretty(h.from)} → <b>${pretty(h.to)}</b>${h.reason ? " — " + esc(h.reason) : ""}</div>`).join("") || (i.decisions.length ? "" : `<div class="notice">No human decisions yet.</div>`)}</div></div>
+      </div>
+    </div></div>`;
+}
+function taskItem(t) {
+  const responder = can("task_respond");
+  return `<div class="item"><div class="meta"><span class="mono">T-${t.id}</span><b>${esc(t.org_name)}</b><span class="tag">${pretty(t.status)}</span>${t.overdue ? `<span class="tag bad">overdue</span>` : ""}<span>due ${esc(String(t.due_at).replace("T", " ").slice(0, 16))}</span></div>
+    <div>${esc(t.title)}</div>
+    ${t.comments.map((c) => `<div class="muted" style="font-size:12.5px">↳ <b>${esc(c.by)}</b>: ${esc(c.body)}</div>`).join("")}
+    ${responder && !["completed", "cancelled"].includes(t.status) ? `<div class="row" style="margin-top:6px">
+      ${t.status === "open" ? `<button class="btn primary" data-act="task-upd" data-s="acknowledged" data-id="${t.id}">Acknowledge</button>` : ""}
+      <button class="btn" data-act="task-upd" data-s="in_progress" data-id="${t.id}">In progress</button>
+      <button class="btn" data-act="task-upd" data-s="completed" data-id="${t.id}">Complete</button></div>
+      <div class="row" style="margin-top:6px"><input type="text" id="tc-${t.id}" placeholder="Reply to the analyst" style="flex:1" aria-label="Task comment"><button class="btn" data-act="task-upd" data-id="${t.id}">Send</button></div>` : ""}</div>`;
+}
+function renderRestrictedIncident(i) {
+  return `<div class="grid"><div class="row"><a href="#incidents" class="btn">← Shared investigations</a></div>
+    <div class="notice warn">Restricted view for ${esc(ME.org_name)}. ${esc(i.summary)} Installation details, other vendors' telemetry and unshared findings are withheld by the backend.</div>
+    <div class="panel stripe stripe-${esc(i.severity)}"><h2><span class="row">${sev(i.severity)} <span class="mono">${esc(i.code)}</span> <span class="tag">${pretty(i.status)}</span></span></h2>
+      <h3>Shared evidence (${i.evidence.length})</h3><div class="list">${i.evidence.map((e) => `<div class="item stripe stripe-${esc(e.severity)}"><div class="meta">${sev(e.severity)}<span class="tag ${esc(e.category)}">${esc(e.category)}</span><span class="mono">${esc(e.device)}</span><span class="mono">${hhmmss(e.ts)}</span></div><b>${esc(e.title)}</b> — ${esc(e.explanation)}</div>`).join("") || `<div class="notice">Nothing shared yet.</div>`}</div>
+      <h3>Your tasks</h3><div class="list">${i.tasks.map(taskItem).join("") || `<div class="notice">No tasks.</div>`}</div>
+      <h3>Shared notes</h3><div class="list">${i.notes.map((n) => `<div class="item"><div class="meta"><b>${esc(n.by)}</b><span>${esc(n.org)}</span></div>${esc(n.body)}</div>`).join("")}</div>
+      <textarea id="note" rows="2" placeholder="Note to the security team" style="margin-top:8px"></textarea><div class="row" style="margin-top:6px"><button class="btn" data-act="note" data-id="${i.id}">Add shared note</button></div>
+    </div></div>`;
+}
+
+async function renderSupply() {
+  const d = await GET("/api/supply-chain");
+  return `<div class="grid">
+    <div class="notice">CycloneDX SBOMs are parsed per firmware. Applicability is decided from component versions against the fixed version; only the vendor can confirm or rule out impact. HYPO-* records are hypothetical demonstration vulnerabilities, not real CVEs.</div>
+    <div class="cols">${d.vulnerabilities.map((v) => `<div class="panel stripe stripe-high"><h2><span class="mono">${esc(v.id)}</span><span class="tag">CVSS ${esc(v.cvss)} (hypothetical)</span></h2>
+      <b>${esc(v.title)}</b><p class="muted" style="margin:6px 0">${esc(v.description)}</p>
+      <div class="row">${v.functions.map((f) => `<span class="tag">${pretty(f)}</span>`).join("")}<span class="tag">fixed in ${esc(v.component)} ${esc(v.fixed_in)}</span></div>
+      <h3>Potentially affected deployed devices (${v.affected_devices.length})</h3>
+      <div class="row">${v.affected_devices.map((x) => `<span class="tag mono">${esc(x.device_id || "")} ${esc(x.firmware)} · ${pretty(x.status)}</span>`).join("") || `<span class="muted">None</span>`}</div></div>`).join("")}</div>
+    <div class="panel"><h2>Firmware &amp; SBOM inventory</h2><div class="scroll"><table><thead><tr><th>Firmware</th><th>Installed</th><th>Components</th><th>Vulnerability applicability</th></tr></thead><tbody>
+      ${d.sboms.map((s) => `<tr><td><b>${esc(s.firmware)}</b> <span class="mono">${esc(s.version)}</span><div class="muted mono">${esc(s.file)} · CycloneDX ${esc(s.spec)}</div></td><td class="mono">${s.installed_devices}</td>
+        <td>${s.components.map((c) => `<span class="tag mono" title="${esc(c.purl || "")}">${esc(c.name)}@${esc(c.version)}</span>`).join("")}</td>
+        <td>${s.applicability.map((a) => `<div style="margin-bottom:4px"><span class="mono">${esc(a.vulnerability)}</span> <span class="tag ${a.status.includes("affected") && !a.status.startsWith("not") ? "bad" : "ok"}">${pretty(a.status)}</span><div class="muted" style="font-size:12px">${esc(a.method)}</div>
+          ${d.can_decide ? `<div class="row"><button class="btn" data-act="vex" data-v="${esc(a.vulnerability)}" data-m="${esc(s.firmware)}" data-ver="${esc(s.version)}" data-s="confirmed_affected">Confirm affected</button><button class="btn" data-act="vex" data-v="${esc(a.vulnerability)}" data-m="${esc(s.firmware)}" data-ver="${esc(s.version)}" data-s="not_affected">Not affected</button></div>` : ""}</div>`).join("") || `<span class="muted">No known applicable records</span>`}</td></tr>`).join("")}
+    </tbody></table></div></div>
+    ${d.can_decide || can("triage") ? `<div class="panel"><h2>Upload a CycloneDX SBOM</h2><div class="grid" style="gap:8px"><input type="file" id="sbom-file" accept=".json,application/json" aria-label="SBOM file"><textarea id="sbom-text" rows="3" placeholder="…or paste CycloneDX JSON here"></textarea><div class="row"><button class="btn primary" data-act="sbom">Parse &amp; add</button></div></div></div>` : ""}
+  </div>`;
+}
+
+async function renderCoordination() {
+  const tasks = await GET("/api/tasks");
+  const overdue = tasks.filter((t) => t.overdue).length;
+  return `<div class="grid">
+    <div class="kpis"><div class="kpi"><span>Open tasks</span><b>${tasks.filter((t) => !["completed", "cancelled"].includes(t.status)).length}</b></div>
+      <div class="kpi"><span>Awaiting acknowledgement</span><b>${tasks.filter((t) => t.status === "open").length}</b></div>
+      <div class="kpi ${overdue ? "alert" : ""}"><span>Overdue</span><b>${overdue}</b></div>
+      <div class="kpi"><span>Completed</span><b>${tasks.filter((t) => t.status === "completed").length}</b></div></div>
+    <div class="panel"><h2>${can("view_incidents_all") ? "All coordination tasks" : "Tasks assigned to " + esc(ME.org_name)}</h2>
+      <div class="list">${tasks.map((t) => `<div><a class="mono" href="#incident-${t.incident_id}">${esc(t.incident_code)}</a>${taskItem(t)}</div>`).join("") || `<div class="notice">No tasks yet. An analyst assigns them from an incident.</div>`}</div></div></div>`;
+}
+
+async function renderSimulation() {
+  const d = await GET("/api/scenarios");
+  return `<div class="grid">
+    <div class="notice">Scenarios change only simulated device behaviour. Detection and correlation process the resulting telemetry and events independently; the results table compares their output with each scenario's ground truth.</div>
+    <div class="cols">${d.scenarios.map((s) => `<div class="panel"><h2>${esc(s.name)} <span class="muted mono">${s.duration} s</span></h2><div>${esc(s.description)}</div><div class="muted" style="font-size:12.5px;margin:6px 0 10px">Expected: ${esc(s.expected)}</div><button class="btn primary" data-act="run" data-k="${esc(s.key)}">Run</button></div>`).join("")}</div>
+    <div class="panel"><h2>Expected vs actual <span class="row">${S.confirmReset ? `<span class="muted">Clear all incidents, tasks and history?</span><button class="btn danger" data-act="reset-yes">Yes, reset</button><button class="btn" data-act="reset-no">Cancel</button>` : `<button class="btn" data-act="reset">Reset platform</button>`}</span></h2>
+      <div class="scroll"><table><thead><tr><th>Run</th><th>Scenario</th><th>Status</th><th>First detection</th><th>Rules fired</th><th>Incidents</th><th>Top hypothesis</th><th>Matches ground truth</th></tr></thead><tbody>
+      ${d.runs.map((r) => `<tr><td class="mono">#${r.id}</td><td>${esc(r.name)}</td><td><span class="tag">${esc(r.status)}</span></td><td class="mono">${r.first_detection_s != null ? "+" + r.first_detection_s + " s" : "—"}</td>
+        <td>${[...new Set(r.detections.map((x) => x.rule))].map((x) => `<span class="tag mono">${esc(x)}</span>`).join("") || "—"}</td>
+        <td>${r.incidents.map((c) => `<a class="mono" href="#incident-${+c.split("-").pop()}">${esc(c)}</a>`).join(" ") || "none"}</td>
+        <td>${pretty(r.top_hypotheses[0] || "—")}<div class="muted" style="font-size:12px">expected: ${pretty(r.ground_truth.expected_hypothesis || "no incident")}</div></td>
+        <td class="${r.hypothesis_match ? "ok" : "bad"}">${r.status === "running" ? "…" : r.hypothesis_match ? "✓ yes" : "✗ no"}</td></tr>`).join("") || `<tr><td colspan="8" class="muted">No runs yet.</td></tr>`}
+      </tbody></table></div></div></div>`;
+}
+
+async function renderAudit() {
+  const a = await GET("/api/audit");
+  return `<div class="panel"><h2>Audit trail <span class="${a.chain_valid ? "ok" : "bad"}">${a.chain_valid ? "Hash chain verified" : "Hash chain broken"}</span></h2>
+    <div class="scroll"><table><thead><tr><th>#</th><th>Time</th><th>Actor</th><th>Action</th><th>Resource</th><th>Details</th><th>Hash</th></tr></thead><tbody>
+    ${a.records.map((r) => `<tr><td class="mono">${r.seq}</td><td class="mono">${hhmmss(r.at)}</td><td>${esc(r.actor_name)}</td><td class="mono">${esc(r.action)}</td><td class="mono">${esc(r.resource)}</td><td class="muted mono" style="max-width:340px">${esc(JSON.stringify(r.details)).slice(0, 160)}</td><td class="mono muted">${esc(String(r.hash || "").slice(0, 10))}</td></tr>`).join("")}
+    </tbody></table></div></div>`;
+}
+
+// ------------------------------------------------------------------ render loop with form preservation
+let rendering = false;
+async function render() {
+  if (rendering || !ME) return;
+  rendering = true;
+  const name = currentView();
+  const view = document.getElementById("view");
+  try {
+    document.getElementById("page-title").textContent = S.incident ? "Incident investigation" : VIEWS[name].title;
+    const html = await VIEWS[name].render();
+    const saved = {}, active = document.activeElement && document.activeElement.id;
+    let sel = null;
+    view.querySelectorAll("[id]").forEach((el) => { if ("value" in el && el.type !== "file") saved[el.id] = el.value; });
+    if (active && document.activeElement.selectionStart != null) sel = [document.activeElement.selectionStart, document.activeElement.selectionEnd];
+    view.innerHTML = html;
+    for (const [k, v] of Object.entries(saved)) { const el = document.getElementById(k); if (el && el.tagName !== "SELECT" && v) el.value = v; else if (el && el.id === "task-org" && v) el.value = v; }
+    if (active) { const el = document.getElementById(active); if (el) { el.focus(); if (sel && el.setSelectionRange) try { el.setSelectionRange(...sel); } catch (e) {} } }
+  } catch (e) {
+    view.innerHTML = `<div class="notice warn">${esc(e.message)}</div>`;
+  }
+  renderNav(name);
+  try { const o = await GET("/api/overview"); document.getElementById("clock").innerHTML = `<span class="dot"></span>sim t=${o.sim_time_s} s · ${o.detections_total} findings`; } catch (e) {}
+  rendering = false;
+}
+
+async function signIn(uid) {
+  const { token } = await POST("/api/login", { user_id: uid });
+  TOKEN = token; ME = await GET("/api/me"); storeSet("eos-user", uid);
+  document.getElementById("identity").value = uid;
+  S.evSel.clear();
+  if (!allowed(VIEWS[currentView()]) || (location.hash.startsWith("#incident-") && !can("view_incidents_all") && !can("view_shared"))) location.hash = "overview";
+  await render();
+}
+
+document.addEventListener("click", async (ev) => {
+  const el = ev.target.closest("[data-act]");
+  if (!el || el.tagName === "SELECT" || el.type === "checkbox") return;
+  const a = el.dataset.act, id = el.dataset.id;
+  const val = (x) => (document.getElementById(x) || {}).value || "";
+  try {
+    if (a === "open-inc") { location.hash = "incident-" + id; return; }
+    if (a === "as") { await signIn(el.dataset.user); toast("Signed in as " + ME.name); return; }
+    if (a === "demo-run") { if (!can("simulate")) await signIn("u-analyst"); await POST("/api/scenarios/suspicious_v2h/start"); S.inst = "inst-001"; location.hash = "live"; toast("Scenario started: watch inst-001"); return; }
+    if (a === "demo-open") { const l = await GET("/api/incidents"); if (!l.length) return toast("No incident yet — run the scenario first"); location.hash = "incident-" + l[0].id; return; }
+    if (a === "run") { await POST(`/api/scenarios/${el.dataset.k}/start`); toast("Scenario started"); }
+    if (a === "reset") { S.confirmReset = true; }
+    if (a === "reset-no") { S.confirmReset = false; }
+    if (a === "reset-yes") { await POST("/api/simulation/reset"); S.confirmReset = false; toast("Platform reset"); }
+    if (a === "decide") { await POST(`/api/incidents/${id}/decision`, { decision: el.dataset.d, rationale: val("reason") }); document.getElementById("reason").value = ""; toast("Decision recorded"); }
+    if (a === "status") { await POST(`/api/incidents/${id}/status`, { status: el.dataset.s, reason: val("reason") }); document.getElementById("reason").value = ""; toast("Status updated"); }
+    if (a === "note") { if (!val("note")) return toast("Write a note first"); await POST(`/api/incidents/${id}/notes`, { body: val("note") }); document.getElementById("note").value = ""; toast("Note added"); }
+    if (a === "task") { if (!val("task-title")) return toast("Give the task a title"); await POST(`/api/incidents/${id}/tasks`, { org: val("task-org"), title: val("task-title"), due_hours: +val("task-due") || 48, evidence_ids: [...S.evSel] });
+      document.getElementById("task-title").value = ""; S.evSel.clear(); toast("Task assigned"); }
+    if (a === "share") { await POST(`/api/incidents/${id}/share`, { org: val("task-org"), evidence_ids: [...S.evSel] }); S.evSel.clear(); toast("Evidence shared"); }
+    if (a === "task-upd") { const c = val("tc-" + id); await POST(`/api/tasks/${id}`, { status: el.dataset.s || null, comment: c }); const i = document.getElementById("tc-" + id); if (i) i.value = ""; toast("Task updated"); }
+    if (a === "vex") { await POST("/api/supply-chain/decision", { vulnerability: el.dataset.v, model: el.dataset.m, version: el.dataset.ver, status: el.dataset.s, note: "Vendor product-security assessment" }); toast("Applicability decision recorded"); }
+    if (a === "sbom") {
+      const f = document.getElementById("sbom-file").files[0];
+      const content = f ? await f.text() : val("sbom-text");
+      if (!content) return toast("Choose a file or paste JSON");
+      const r = await POST("/api/supply-chain/sbom", { content, filename: f ? f.name : "pasted.json" });
+      toast(`Parsed ${r.firmware} ${r.version}: ${r.components} components`);
+    }
+    if (a === "export") { const data = await GET(`/api/incidents/${id}/export`); showModal("Evidence export", JSON.stringify(data, null, 2)); return; }
+    if (a === "copy") { const t = document.getElementById("modal-pre").textContent; try { await navigator.clipboard.writeText(t); toast("Copied"); } catch (e) { const r = document.createRange(); r.selectNodeContents(document.getElementById("modal-pre")); getSelection().removeAllRanges(); getSelection().addRange(r); toast("Selected — press Ctrl/⌘+C"); } return; }
+    if (a === "close-modal") { document.getElementById("modal").hidden = true; return; }
+    await render();
+  } catch (e) { toast(e.message); }
+});
+document.addEventListener("change", async (ev) => {
+  const el = ev.target;
+  if (el.id === "identity") return signIn(el.value).catch((e) => toast(e.message));
+  if (el.dataset.act === "inst") { S.inst = el.value; return render(); }
+  if (el.dataset.act === "evsel") { el.checked ? S.evSel.add(el.value) : S.evSel.delete(el.value); render(); }
+});
+function showModal(title, text) {
+  const m = document.getElementById("modal");
+  m.innerHTML = `<div class="panel" role="dialog" aria-label="${esc(title)}"><h2>${esc(title)}<span class="row"><button class="btn" data-act="copy">Copy</button><button class="btn" data-act="close-modal">Close</button></span></h2><pre id="modal-pre">${esc(text)}</pre></div>`;
+  m.hidden = false;
+}
+window.addEventListener("hashchange", () => { S.evSel.clear(); render(); });
+
+(async function boot() {
+  MODE = await detectMode();
+  document.getElementById("mode-chip").innerHTML = `<span class="chip"><span class="dot"></span>${MODE === "server" ? "Python backend" : "In-browser engine"}</span>`;
+  USERS = await GET("/api/users");
+  document.getElementById("identity").innerHTML = USERS.map((u) => `<option value="${esc(u.id)}">${esc(u.name)} — ${pretty(u.role)}, ${esc(u.org_name)}</option>`).join("");
+  await signIn("u-analyst");
+  ORGS = await GET("/api/orgs");
+  setInterval(render, 2000);
+})();
+})();
+</script>

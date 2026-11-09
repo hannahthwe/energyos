@@ -1,0 +1,55 @@
+{
+ "bomFormat": "CycloneDX",
+ "specVersion": "1.5",
+ "serialNumber": "urn:uuid:00000000-0000-4000-8000-326841553255",
+ "version": 1,
+ "metadata": {
+  "timestamp": "2026-10-01T00:00:00Z",
+  "supplier": {
+   "name": "sunpeak"
+  },
+  "component": {
+   "type": "firmware",
+   "name": "SP-5000",
+   "version": "1.9.2",
+   "bom-ref": "root"
+  }
+ },
+ "components": [
+  {
+   "type": "library",
+   "bom-ref": "sp-modbus-gw@1.2.0",
+   "name": "sp-modbus-gw",
+   "version": "1.2.0",
+   "purl": "pkg:generic/sunpeak/sp-modbus-gw@1.2.0",
+   "properties": [
+    {
+     "name": "energyos:function",
+     "value": "solar_inverter_monitoring"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "mbedtls@2.28.0",
+   "name": "mbedtls",
+   "version": "2.28.0",
+   "purl": "pkg:generic/mbedtls@2.28.0",
+   "properties": [
+    {
+     "name": "energyos:function",
+     "value": "device_communications"
+    }
+   ]
+  }
+ ],
+ "dependencies": [
+  {
+   "ref": "root",
+   "dependsOn": [
+    "sp-modbus-gw@1.2.0",
+    "mbedtls@2.28.0"
+   ]
+  }
+ ]
+}

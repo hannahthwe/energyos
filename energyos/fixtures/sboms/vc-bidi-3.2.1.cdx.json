@@ -1,0 +1,92 @@
+{
+ "bomFormat": "CycloneDX",
+ "specVersion": "1.5",
+ "serialNumber": "urn:uuid:00000000-0000-4000-8000-894176392457",
+ "version": 1,
+ "metadata": {
+  "timestamp": "2026-10-01T00:00:00Z",
+  "supplier": {
+   "name": "voltcharge"
+  },
+  "component": {
+   "type": "firmware",
+   "name": "VC-Bidi 11 (V2H)",
+   "version": "3.2.1",
+   "bom-ref": "root"
+  }
+ },
+ "components": [
+  {
+   "type": "library",
+   "bom-ref": "vc-ocpp-stack@1.4.2",
+   "name": "vc-ocpp-stack",
+   "version": "1.4.2",
+   "purl": "pkg:generic/voltcharge/vc-ocpp-stack@1.4.2",
+   "properties": [
+    {
+     "name": "energyos:function",
+     "value": "ev_charging,v2h_discharge"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "vc-v2h-controller@2.1.0",
+   "name": "vc-v2h-controller",
+   "version": "2.1.0",
+   "purl": "pkg:generic/voltcharge/vc-v2h-controller@2.1.0",
+   "properties": [
+    {
+     "name": "energyos:function",
+     "value": "v2h_discharge"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "openssl@1.1.1k",
+   "name": "openssl",
+   "version": "1.1.1k",
+   "purl": "pkg:generic/openssl@1.1.1k",
+   "properties": [
+    {
+     "name": "energyos:function",
+     "value": "device_communications"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "mosquitto@2.0.11",
+   "name": "mosquitto",
+   "version": "2.0.11",
+   "purl": "pkg:generic/mosquitto@2.0.11",
+   "properties": [
+    {
+     "name": "energyos:function",
+     "value": "device_communications"
+    }
+   ]
+  },
+  {
+   "type": "library",
+   "bom-ref": "zlib@1.2.11",
+   "name": "zlib",
+   "version": "1.2.11",
+   "purl": "pkg:generic/zlib@1.2.11",
+   "properties": []
+  }
+ ],
+ "dependencies": [
+  {
+   "ref": "root",
+   "dependsOn": [
+    "vc-ocpp-stack@1.4.2",
+    "vc-v2h-controller@2.1.0",
+    "openssl@1.1.1k",
+    "mosquitto@2.0.11",
+    "zlib@1.2.11"
+   ]
+  }
+ ]
+}
