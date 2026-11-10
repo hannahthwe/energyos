@@ -296,6 +296,34 @@ sequenceDiagram
 - Claude **decides which agents to run and writes the explanation**, but every fact still comes from the same deterministic tools. It can only cite evidence IDs that an agent returned, so it can't invent records.
 - For homeowners, an answer that mentions internal identifiers (evidence IDs, API client IDs, charger error codes, session IDs) is rejected.
 
+### Model and API settings
+
+| Setting | Value | Why |
+|---|---|---|
+| Provider / SDK | Anthropic Claude API, official `anthropic` Python SDK (`anthropic>=2,<3`) | First-party SDK; no OpenAI-compatible shim |
+| Model | `claude-opus-5-5` (Claude Opus 5.5), override with `CONNECTEDCARE_MODEL` | Strongest reasoning for multi-step diagnosis |
+| Call | `client.beta.messages.create(...)`, one call per turn, up to **8 turns** (`MAX_TURNS`) | Manual tool loop so the backend runs every tool itself |
+| Thinking | `thinking: {"type": "adaptive"}` | The model decides how much to reason per step |
+| Effort | `output_config: {"effort": "low"}`, override with `CONNECTEDCARE_EFFORT` | Keeps answers fast enough for a live demo; raise to `medium`/`high` for harder cases |
+| Max output | `max_tokens: 16000` per turn | Room for thinking plus the structured diagnosis |
+| Fallback | beta `server-side-fallback-2026-07-01` with `fallbacks: "default"` | If the model declines, the API retries on a fallback model instead of failing |
+| Tools | 4 agent tools (`run_technical_diagnostics_agent`, `run_energy_behaviour_agent`, `run_security_correlation_agent`, `run_support_resolution_agent`) + `submit_diagnosis`, all `strict: true` | Strict JSON schemas so tool inputs always match |
+| Output schema | `submit_diagnosis` differs by role: homeowner gets headline / what happened / why / unknowns / next steps; support gets answer, observed facts and interpretation with evidence IDs, missing information, actions | The same model writes in two voices with two schemas |
+| Prompting | One system prompt with the rules (use only agent output, separate facts from interpretation, declare missing data, never claim a cyberattack, cite evidence IDs), plus a homeowner or support audience block | Rules live in the prompt *and* are enforced in code |
+| Data Claude sees | Only agent results, already filtered by `visibility.py` for the role. No database access, no raw source records | Least privilege |
+| Errors | Connection errors, rate limits, API errors, refusals, missing diagnosis, or failed validation all raise `LLMUnavailable` → offline result, with a note in the answer | The demo never breaks because of the API |
+
+**One request, step by step**
+
+1. The backend builds the system prompt (rules + audience) and the user message (installation, time window, incident time, question).
+2. Claude replies with one or more `tool_use` blocks, e.g. `run_energy_behaviour_agent`.
+3. The backend runs that agent in Python, filters the result for the role and returns it as a `tool_result`. Every evidence ID it returns is recorded.
+4. Steps 2–3 repeat until Claude calls `submit_diagnosis` (at most 8 turns).
+5. `validate()` keeps only evidence IDs that were recorded in step 3, requires at least one backed fact for support answers, and rejects homeowner text containing internal identifiers.
+6. The validated text replaces the offline wording; agent cards, timeline and evidence still come from the deterministic run. The answer is labelled `claude`.
+
+The code is in `backend/app/llm.py`. Tests in `backend/tests/test_llm_mode.py` use a scripted fake client to check the loop, the evidence validation, the leak rejection and the fallback.
+
 ### Is there a real LLM?
 
 **Yes, the Claude integration is real code** (`backend/app/llm.py`, using the official `anthropic` Python SDK). It switches on when `ANTHROPIC_API_KEY` is set when the server starts:
