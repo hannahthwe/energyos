@@ -1,0 +1,152 @@
+import Foundation
+
+// Decoded with .convertFromSnakeCase: `soc_pct` -> `socPct`, etc.
+
+struct ScenarioInfo: Codable, Identifiable, Hashable {
+    let code: String
+    let name: String
+    let summary: String
+    var id: String { code }
+}
+
+struct DemoState: Codable {
+    let scenario: String
+    let scenarios: [ScenarioInfo]
+    let aiMode: String
+    let model: String?
+    let syntheticData: Bool
+}
+
+struct Overview: Codable {
+    struct EV: Codable {
+        let socPct: Double?
+        let reservePct: Double?
+        let pluggedIn: Bool
+        let usableForHomeKwh: Double
+    }
+    struct V2H: Codable {
+        let available: Bool
+        let reason: String
+        let nextWindow: String?
+        let lastNightDelivered: Bool
+    }
+    struct Charger: Codable {
+        let status: String
+        let model: String
+    }
+    struct LoadPoint: Codable, Identifiable {
+        let t: String
+        let kw: Double
+        var id: String { t }
+    }
+    struct Home: Codable {
+        let loadKw: Double?
+        let solarKw: Double
+        let loadSeries: [LoadPoint]
+    }
+    struct Finding: Codable, Identifiable {
+        let runId: String
+        let headline: String
+        let createdAt: String
+        let supportRecommended: Bool
+        var id: String { runId }
+    }
+
+    let customerFirstName: String
+    let address: String
+    let ev: EV
+    let v2h: V2H
+    let charger: Charger
+    let home: Home
+    let recentFindings: [Finding]
+}
+
+struct Evidence: Codable, Identifiable, Hashable {
+    let evidenceId: String
+    let sourceSystem: String
+    let sourceLabel: String
+    let sourceRecordId: String
+    let timestampUtc: String?
+    let evidenceType: String
+    let summary: String
+    let visibilityLevel: String
+    var id: String { evidenceId }
+}
+
+struct TimelineItem: Codable, Identifiable, Hashable {
+    let timestampUtc: String
+    let time: String
+    let label: String
+    let evidenceId: String
+    let sourceSystem: String
+    let kind: String
+    let visibilityLevel: String
+    var id: String { timestampUtc + evidenceId }
+}
+
+struct ScenarioRef: Codable, Hashable {
+    let code: String
+    let name: String
+}
+
+/// Homeowner-safe diagnosis. The server strips internal and restricted data
+/// before it ever reaches the app.
+struct HomeDiagnosis: Codable, Identifiable, Hashable {
+    let runId: String
+    let question: String
+    let mode: String
+    let modeNote: String?
+    let scenario: ScenarioRef
+    let likelyCause: String
+    let headline: String
+    let whatHappened: String
+    let why: [String]
+    let unknown: [String]
+    let nextSteps: [String]
+    let supportRecommended: Bool
+    let evidence: [Evidence]
+    let checksRun: [String]
+    let timeline: [TimelineItem]
+    let createdAt: String
+    var id: String { runId }
+}
+
+struct SharePreview: Codable {
+    let runId: String
+    let question: String
+    let summary: String
+    let whatHappened: String
+    let why: [String]
+    let evidenceToShare: [Evidence]
+    let alsoAvailableToSupport: String
+}
+
+struct HandoffResult: Codable {
+    let caseId: String
+    let status: String
+    let title: String
+    let escalationRequired: Bool
+    let sharedEvidenceIds: [String]
+}
+
+struct HomeCase: Codable, Identifiable {
+    let caseId: String
+    let title: String
+    let status: String
+    let createdAt: String
+    var id: String { caseId }
+}
+
+enum ChatEntry: Identifiable {
+    case user(id: UUID, text: String)
+    case assistant(HomeDiagnosis)
+    case failure(id: UUID, text: String)
+
+    var id: String {
+        switch self {
+        case .user(let id, _): return id.uuidString
+        case .assistant(let d): return d.runId
+        case .failure(let id, _): return id.uuidString
+        }
+    }
+}
