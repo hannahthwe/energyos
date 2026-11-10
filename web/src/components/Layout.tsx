@@ -39,6 +39,7 @@ export default function Layout() {
             </div>
           </Link>
           <div className="ml-auto flex flex-wrap items-center gap-3 text-xs">
+            <Link to="/app" className="rounded-md bg-teal px-2 py-1 font-medium text-white hover:bg-teal-600">Homeowner app</Link>
             <SyntheticLabel />
             {demo && (
               <Badge tone={demo.ai_mode === "claude" ? "teal" : "slate"} className="bg-white/10 text-white ring-white/20">

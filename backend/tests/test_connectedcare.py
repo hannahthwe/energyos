@@ -201,7 +201,7 @@ def test_case_workflow_persists_across_sessions(client):
     client.patch(f"/api/support/cases/{case_id}/status", json={"status": "Escalated"}, headers=SUPPORT)
     assert client.patch(f"/api/support/cases/{case_id}/status", json={"status": "Bogus"}, headers=SUPPORT).status_code == 400
     draft = client.post(f"/api/support/cases/{case_id}/draft-response", headers=SUPPORT).json()["draft"]
-    assert "V2H_SESSION_REJECTED" not in draft and "Sam" in draft
+    assert "V2H_SESSION_REJECTED" not in draft and "May" in draft
     esc = client.post(f"/api/support/cases/{case_id}/escalation", headers=SUPPORT).json()
     assert esc["external_partner"] and all(e["visibility_level"] != "restricted" for e in esc["evidence"])
     ans = client.post(f"/api/support/cases/{case_id}/ask", json={"question": "Which system rejected the command?"},

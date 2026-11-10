@@ -69,8 +69,8 @@ def iso_off(h: int, m: int, day: int = 9) -> str:
 
 # --------------------------------------------------------------- static data
 def seed_static(s: Session) -> None:
-    s.add(S.CrmAccount(crm_customer_ref="CUST-88412", tenant_code="HELIO", full_name="Sam Whitfield",
-                       email_addr="sam.whitfield@example.com", contact_pref="APP"))
+    s.add(S.CrmAccount(crm_customer_ref="CUST-88412", tenant_code="HELIO", full_name="May",
+                       email_addr="may@example.com", contact_pref="APP"))
     s.add(S.CrmSite(site_ref="SITE-UK-20931", crm_customer_ref="CUST-88412", tz="Europe/London",
                     site_status="LIVE", address_line="14 Orchard Row, Bristol (synthetic)",
                     installed_on="2026-03-14", installer_name="BrightSpark Installers Ltd (fictional)"))
@@ -117,11 +117,11 @@ def seed_static(s: Session) -> None:
     s.add_all([
         S.ChgChargepoint(chargepoint_ref=CP, vendor_name="Voltara", model_name="BiDi 11", fw_rev="2.8.3",
                          conn_state="Online", last_seen=iso_off(19, 30), serial_number="VB11-23-004512",
-                         nickname="Whitfield driveway"),
+                         nickname="May's driveway"),
         # Decoy: similar nickname, different serial, different site. Must NOT be mapped.
         S.ChgChargepoint(chargepoint_ref=CP_DECOY, vendor_name="Voltara", model_name="BiDi 11", fw_rev="2.8.1",
                          conn_state="Online", last_seen=iso_off(19, 28), serial_number="VB11-23-004513",
-                         nickname="Whitfield drive"),
+                         nickname="May's drive"),
     ])
 
     s.add_all([

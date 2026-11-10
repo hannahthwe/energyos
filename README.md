@@ -6,8 +6,43 @@ Pitch MVP for the fictional HEMS manufacturer **HelioHEMS**. **All data is synth
 | Part | What it is | Where |
 |---|---|---|
 | Homeowner app | Native **iOS app** (SwiftUI): home energy overview, AI assistant, consent-based support handoff | `ios/` |
+| Homeowner app (web) | The same homeowner app in the browser, for demos without Xcode or on any phone | `web/` → `/app` |
 | Support dashboard | Web console for HelioHEMS support staff: case queue, AI investigation, copilot, workflow | `web/` → `/support` |
 | Backend | FastAPI + SQLite: unified data model, 4 specialist agents, orchestrator, Claude integration | `backend/` |
+
+How the apps connect, the full API and the backend internals: **[docs/TECHNICAL.md](docs/TECHNICAL.md)**.
+
+## Demo day: quick start
+
+You need macOS (or Linux) with **Python 3.10+** and **Node.js 18+**. Everything runs from one script:
+
+```bash
+cd connectedcare
+./start-demo.sh
+```
+
+The first run sets up Python and the web packages (a few minutes). After that it starts in seconds. The script:
+1. creates `backend/.venv` and installs the Python packages, if missing;
+2. installs `web/node_modules`, if missing;
+3. builds the web app, if the code changed;
+4. resets the demo data and starts the backend on port 8000, then prints the links.
+
+| Open this | What it is |
+|---|---|
+| http://localhost:8000/support | Support dashboard (for HelioHEMS staff) |
+| http://localhost:8000/app | Homeowner app in the browser |
+| http://localhost:8000/docs | Interactive API docs |
+| `http://<your Mac's Wi-Fi IP>:8000/app` | Homeowner app in Safari on your iPhone (same Wi-Fi). The script prints the address |
+
+- **Stop:** press `Ctrl+C` in that terminal.
+- **Keep earlier support cases** instead of starting fresh: `./start-demo.sh --keep`
+- **Use Claude** instead of offline rules: run `export ANTHROPIC_API_KEY=sk-ant-...` first, then `./start-demo.sh`. The dashboard header shows which mode is on.
+- **Phone shows "can't connect":** check that the phone and Mac are on the same Wi-Fi, the script is still running, and the macOS firewall isn't blocking Python (System Settings → Network → Firewall).
+- **"Address already in use":** something is already on port 8000. Stop it, or run `lsof -ti :8000 | xargs kill`.
+
+**Before you present:** start the script, open `/support` on the laptop and `/app` on the phone (or the iOS app), pick scenario **A** in the dashboard header, and follow the [demo script](#4-demo-script-35-minutes) below. Use two screens: the phone is the homeowner, the laptop is support.
+
+The sections below describe each part on its own, for development.
 
 ```
 iOS app ──┐                          ┌─ Technical Diagnostics Agent ─┐
@@ -66,7 +101,7 @@ With a free Apple ID the app stays installed for 7 days; run it from Xcode again
 
 ## 4. Demo script (3–5 minutes)
 
-1. **iPhone → Home.** SOC ring, reserve marker, V2H status, charger online. Tap *Demo* and pick scenario **A**.
+1. **iPhone → Home** (iOS app, or `/app` in Safari). SOC ring, reserve marker, V2H status, charger online. Tap *Demo* and pick scenario **A**.
 2. **Assistant:** "Why didn't my EV discharge last night?" The answer explains that the car was below the 40% reserve and that nothing is broken. The answer comes from the home's records. No support needed.
 3. Switch to scenario **B** and ask again. The charger rejected the request, and the app says plainly that the reason isn't visible. Tap **Request support**. The consent screen lists exactly which records will be shared. Approve it.
 4. **Web `/support`:** the new case appears in the queue with its CRM profile, installation, devices and history. Open the **AI investigation**.
