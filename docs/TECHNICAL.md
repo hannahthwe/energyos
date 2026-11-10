@@ -182,7 +182,136 @@ Every canonical record keeps `source_system` and `source_record_id`, and becomes
 
 One SQLite file with 37 tables. They're grouped by prefix: `crm_`, `hems_`, `chg_`, `kb_`/`audit_` (simulated sources) and `cc_` (ConnectedCare's own model and workflow).
 
-## 7. Configuration
+## 7. The agents
+
+There are **4 specialist agents** and **1 orchestrator** that coordinates them. Together they use **14 tools** (`tools.py`), and each agent owns its own set. The tools are plain Python functions that run database queries; they never guess or call the internet.
+
+```mermaid
+flowchart TB
+  Q["Question<br/>(homeowner or support)"] --> O{{"Orchestrator<br/>orchestrator.py / llm.py"}}
+  O --> TD["Technical Diagnostics Agent"]
+  O --> EB["Energy Behaviour Agent"]
+  O --> SC["Security Correlation Agent"]
+  O --> SR["Support Resolution Agent"]
+  TD & EB & SC & SR --> R["Findings + evidence IDs<br/>+ missing information"]
+  R --> O
+  O --> A["Answer: facts · interpretation · unknowns<br/>· actions · evidence · escalation"]
+```
+
+| Agent | Job | Tools it calls | Tables it reads (read-only) |
+|---|---|---|---|
+| **Technical Diagnostics** | Charger status, connectivity, whether commands were sent, accepted or rejected, error events | `get_device_status`, `get_charger_sessions`, `get_device_events`, `correlate_command_response` | `cc_devices`, `cc_source_device_mappings`, `cc_charging_sessions`, `cc_diagnostic_events`, `cc_device_commands` |
+| **Energy Behaviour** | Battery level vs. minimum reserve, schedules, expected vs. measured power | `get_energy_schedule`, `get_soc_history`, `get_operating_constraints`, `compare_expected_actual_power` | `cc_energy_schedules`, `cc_energy_measurements`, `cc_operating_constraints` |
+| **Security Correlation** | Setting changes near the incident and who made them; flags for human review, never declares an attack | `get_configuration_changes`, `correlate_changes_with_incident` | `cc_configuration_changes` |
+| **Support Resolution** | Customer profile, past cases, help articles and manuals, escalation context | `get_customer_profile`, `get_previous_cases`, `search_knowledge_base` | `cc_customers`, `cc_installations`, `cc_previous_interactions`, `cc_knowledge_articles` |
+| *Shared* | Look up any evidence item by ID | `evidence_lookup` | `cc_evidence_records`, `cc_knowledge_articles` |
+
+### Who can access which data
+
+```mermaid
+flowchart LR
+  subgraph SRC["Simulated source systems (raw)"]
+    CRM[(crm_*)]
+    HEMS[(hems_*)]
+    CHG[(chg_*)]
+    KBA[(kb_* / audit_*)]
+  end
+  AD["adapters.py<br/>(only reader of raw tables)"]
+  subgraph CAN["Unified model (cc_*)"]
+    CC[(canonical data<br/>+ evidence)]
+    WF[(cases, messages,<br/>consent, runs)]
+  end
+  AG["4 agents<br/>(read-only)"]
+  OR["Orchestrator"]
+  CS["cases.py"]
+  CRM & HEMS & CHG & KBA --> AD -->|write| CC
+  CC -->|read| AG --> OR
+  OR -->|write diagnosis runs| WF
+  CS -->|read / write| WF
+  CS -->|read| CC
+```
+
+- **Only the adapters read the raw source tables.** Agents never see `crm_`, `hems_` or `chg_` records directly; they only see the cleaned, verified `cc_` data. This is what makes the "unified data model" real.
+- **Agents are read-only.** They can't change settings, send commands to devices or edit cases.
+- **The Security agent's data is `restricted`.** Its findings reach support staff only, never the homeowner app or the external charger partner.
+- **The Claude API never gets database access.** It only sees agent outputs that the backend passes to it, already filtered for the role.
+
+## 8. How a question is processed
+
+### Step by step
+
+```mermaid
+flowchart TD
+  A["1 · Question arrives<br/>POST /api/home/chat or /support/.../ask"] --> B["2 · Classify intent<br/>reserve · why_failed · which_system ·<br/>config_change · missing · next_steps"]
+  B --> C["3 · Set time window<br/>last evening 17:00–06:00 UTC"]
+  C --> D{"4 · Claude mode on?<br/>(API key set)"}
+  D -- no --> E["5a · Offline orchestrator<br/>runs agents by fixed rules"]
+  D -- yes --> F["5b · Claude picks which agents<br/>to run via tool calls"]
+  F -- "error / invalid output" --> E
+  E --> G["6 · Combine findings<br/>→ likely cause"]
+  F --> H["6 · Claude submits diagnosis<br/>(submit_diagnosis tool)"]
+  H --> V["7 · Validate<br/>drop unknown evidence IDs ·<br/>reject leaks to homeowner"]
+  V -- fails --> E
+  G --> I["8 · Filter by role<br/>visibility.py"]
+  V --> I
+  I --> J["9 · Save DiagnosisRun<br/>return JSON to app"]
+```
+
+### Which agents run (offline rules)
+
+1. **Energy Behaviour** always runs first: is the battery above the reserve, was the schedule on, did power flow?
+2. **Technical Diagnostics** always runs: was the command sent, and did the charger accept it?
+3. **Security Correlation** runs **only if** the question asks about settings, **or** the reserve blocked the discharge *and* was changed recently. Otherwise it is shown as "not used" with the reason.
+4. **Support Resolution** always runs last, searching help articles with keywords taken from the other agents' findings.
+
+The orchestrator then chooses the likely cause from the agents' signals:
+
+| Signals | Likely cause | Escalate? |
+|---|---|---|
+| Battery below reserve, reserve unchanged | `soc_reserve`: working as designed (Scenario A) | No |
+| Command sent, charger rejected it | `charger_rejection`: charger partner must check its logs (Scenario B) | Yes → Voltara |
+| Reserve blocked it and was raised by an unknown client shortly before | `config_change_raised_reserve`: human security review (Scenario C) | Yes → internal security |
+| No clear signal | `unknown` / `no_fault` | Depends |
+
+### Claude mode (tool-calling loop)
+
+```mermaid
+sequenceDiagram
+  participant O as Backend (llm.py)
+  participant C as Claude API
+  participant A as Agents + tools
+  O->>C: system prompt + question + 5 tools<br/>(4 agents + submit_diagnosis)
+  loop up to 8 turns
+    C->>O: tool_use: run_energy_behaviour_agent
+    O->>A: run agent (deterministic)
+    A-->>O: findings + evidence IDs
+    O->>C: tool_result (filtered for the role)
+  end
+  C->>O: tool_use: submit_diagnosis (strict schema)
+  O->>O: validate evidence IDs, check for leaks
+  Note over O: any failure → offline result is used instead
+```
+
+- Model: `claude-opus-5-5` with adaptive thinking (change with `CONNECTEDCARE_MODEL`).
+- Claude **decides which agents to run and writes the explanation**, but every fact still comes from the same deterministic tools. It can only cite evidence IDs that an agent returned, so it can't invent records.
+- For homeowners, an answer that mentions internal identifiers (evidence IDs, API client IDs, charger error codes, session IDs) is rejected.
+
+### Is there a real LLM?
+
+**Yes, the Claude integration is real code** (`backend/app/llm.py`, using the official `anthropic` Python SDK). It switches on when `ANTHROPIC_API_KEY` is set when the server starts:
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+./start-demo.sh
+```
+
+The dashboard header then shows **"Claude · claude-opus-5-5"** instead of "Offline deterministic mode", and each answer is labelled with the mode that produced it.
+
+Without a key, the app uses the **offline orchestrator**: the same 4 agents and 14 tools, with fixed routing rules and template wording. The answers are correct for all three scenarios but less flexible for unusual questions.
+
+> **Status:** the Claude path is covered by automated tests that use a scripted, fake Claude. It has **not yet been run against the live Claude API** from this machine, because no API key was available. Run one question with a key before relying on it in a pitch. If anything fails, the app falls back to offline mode automatically and says so in the answer.
+
+## 9. Configuration
 
 | Variable | Default | Effect |
 |---|---|---|
@@ -193,7 +322,7 @@ One SQLite file with 37 tables. They're grouped by prefix: `crm_`, `hems_`, `chg
 | `CONNECTEDCARE_MODEL` | `claude-opus-5-5` | Claude model |
 | `CONNECTEDCARE_EFFORT` | `low` | Claude effort level |
 
-## 8. Running and testing
+## 10. Running and testing
 
 ```bash
 cd connectedcare/backend && .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
@@ -204,7 +333,7 @@ cd connectedcare/web && npm run typecheck
 
 iOS: open `ios/ConnectedCare.xcodeproj` in Xcode 15+ (see the README for iPhone setup).
 
-## 9. Limits of the demo, and the path to production
+## 11. Limits of the demo, and the path to production
 
 | Demo choice | Production replacement |
 |---|---|
