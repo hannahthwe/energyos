@@ -15,6 +15,7 @@ struct DemoState: Codable {
     let aiMode: String
     let model: String?
     let syntheticData: Bool
+    let demoMode: Bool?
 }
 
 struct Overview: Codable {
@@ -106,6 +107,7 @@ struct HomeDiagnosis: Codable, Identifiable, Hashable {
     let supportRecommended: Bool
     let evidence: [Evidence]
     let checksRun: [String]
+    let unavailableSources: [String]?
     let timeline: [TimelineItem]
     let createdAt: String
     var id: String { runId }
@@ -149,4 +151,48 @@ enum ChatEntry: Identifiable {
         case .failure(let id, _): return id.uuidString
         }
     }
+}
+
+/// GET /api/home/savings: actual EV charging cost vs the cheapest hours (deterministic, server-side).
+struct Savings: Codable {
+    struct Session: Codable, Identifiable {
+        let date: String
+        let start: String
+        let end: String
+        let energyKwh: Double
+        let actualEur: Double?
+        let cheapestEur: Double?
+        let savingEur: Double?
+        let departure: String?
+        let smartChargingOn: Bool?
+        let cheapestHours: [String]
+        var id: String { date + start }
+    }
+    let window: String
+    let contractType: String?
+    let complete: Bool
+    let energyKwh: Double
+    let actualEur: Double?
+    let cheapestEur: Double?
+    let savingEur: Double?
+    let sessions: [Session]
+    let tip: String
+    let unavailableSources: [String]
+    let evidenceCount: Int
+}
+
+/// One row of the Data & privacy screen (GET /api/home/consents).
+struct DataConsent: Codable, Identifiable, Hashable {
+    let sourceSystem: String
+    let label: String
+    let sourceLabel: String
+    let scope: String
+    let legalBasis: String
+    let toggleable: Bool
+    let active: Bool
+    let consentId: String?
+    let approvedAt: String?
+    let expiresAt: String?
+    let revokedAt: String?
+    var id: String { sourceSystem }
 }

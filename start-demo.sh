@@ -28,6 +28,7 @@ if [ "${1:-}" = "--keep" ]; then RESET=0; else RESET=1; fi
 IP="$(ipconfig getifaddr en0 2>/dev/null || hostname -I 2>/dev/null | awk '{print $1}' || true)"
 MODE="offline mode, no ANTHROPIC_API_KEY set"
 [ -n "${ANTHROPIC_API_KEY:-}" ] && MODE="Claude mode"
+[ "${CONNECTEDCARE_DEMO_MODE:-}" = "1" ] && MODE="$MODE, presentation mode (internals hidden)"
 
 cat <<EOF
 

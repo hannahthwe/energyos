@@ -3,10 +3,10 @@ from __future__ import annotations
 
 import json
 
-from sqlalchemy import func, select
+from sqlalchemy import func, inspect, select
 from sqlalchemy.orm import Session
 
-from . import adapters, canonical as C, db, seed
+from . import adapters, canonical as C, consents, db, seed
 from . import sources as S
 
 INSTALLATION_ID = "CC-INST-20931"
@@ -59,8 +59,17 @@ def _seed_historic_case(s: Session) -> None:
                            created_at="2026-09-18T09:30:00Z", visibility_level="support_internal"))
 
 
+def _schema_outdated() -> bool:
+    """A database created before the supplier/market sources and the consent manager must be rebuilt."""
+    insp = inspect(db.engine)
+    if not insp.has_table("cc_demo_state"):
+        return False
+    cols = {c["name"] for c in insp.get_columns("cc_consent_records")} if insp.has_table("cc_consent_records") else set()
+    return "source_system" not in cols or not insp.has_table("sup_steering_events")
+
+
 def init_db(reset: bool = False) -> None:
-    if reset:
+    if reset or _schema_outdated():
         db.Base.metadata.drop_all(db.engine)
     db.Base.metadata.create_all(db.engine)
     with db.session_scope() as s:
@@ -69,3 +78,4 @@ def init_db(reset: bool = False) -> None:
             s.flush()
         set_scenario(s, active_scenario(s))
         _seed_historic_case(s)
+        consents.seed_defaults(s, CUSTOMER_ID)

@@ -9,6 +9,8 @@ final class AppState: ObservableObject {
     @Published var overview: Overview?
     @Published var chat: [ChatEntry] = []
     @Published var cases: [HomeCase] = []
+    @Published var savings: Savings?
+    @Published var consents: [DataConsent] = []
     @Published var isThinking = false
     @Published var isLoading = false
     @Published var errorMessage: String?
@@ -19,7 +21,8 @@ final class AppState: ObservableObject {
 
     let suggestions = [
         "Why didn't my EV discharge last night?",
-        "Is my charger working?",
+        "Why did my home battery pause last night?",
+        "Why was my charging so expensive last night?",
         "Was a setting changed?",
     ]
 
@@ -42,6 +45,7 @@ final class AppState: ObservableObject {
             demo = try await d
             overview = try await o
             cases = try await c
+            savings = try? await api.savings()
             errorMessage = nil
         } catch {
             errorMessage = "Can't reach ConnectedCare at \(serverURL). \(error.localizedDescription)"
@@ -70,6 +74,29 @@ final class AppState: ObservableObject {
             overview = try? await api.overview()
         } catch {
             chat.append(.failure(id: UUID(), text: error.localizedDescription))
+        }
+    }
+
+    func loadConsents() async {
+        do {
+            consents = try await api.consents()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// On -> grant a new consent; off -> revoke the active one. Answers then report that source as unavailable.
+    func setConsent(_ c: DataConsent, on: Bool) async {
+        do {
+            if on {
+                try await api.grantConsent(source: c.sourceSystem)
+            } else if let id = c.consentId {
+                try await api.revokeConsent(id: id)
+            }
+            await loadConsents()
+            savings = try? await api.savings()
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 

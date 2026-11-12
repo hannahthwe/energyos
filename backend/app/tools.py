@@ -12,7 +12,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from . import canonical as C
-from .adapters import KNOWN_CLIENTS, SOURCE_LABELS, EVIDENCE_PREFIX
+from . import consents
+from .adapters import AUDIT, CHG, HEMS, KNOWN_CLIENTS, MKT, SOURCE_LABELS, EVIDENCE_PREFIX, SUP
 
 RELEVANT_SETTINGS = ("v2h.reserve.min_soc_pct", "v2h.schedule.enabled", "v2h.schedule.power_w")
 
@@ -27,6 +28,17 @@ def fmt(dt: datetime) -> str:
 
 def eid(source_system: str, source_record_id: str) -> str:
     return f"EVD-{EVIDENCE_PREFIX[source_system]}-{source_record_id}"
+
+
+def _rows(s: Session, model, installation_id: str, *criteria) -> list:
+    """Canonical rows for an installation, minus rows from sources without active consent."""
+    allowed = consents.active_sources(s)
+    rows = s.scalars(select(model).where(model.installation_id == installation_id, *criteria))
+    return [r for r in rows if r.source_system not in consents.GATED or r.source_system in allowed]
+
+
+def _gaps(s: Session, *sources: str) -> list[dict]:
+    return consents.unavailable(s, sources)
 
 
 @dataclass
@@ -57,9 +69,9 @@ def get_device_status(s: Session, installation_id: str) -> dict:
 
 
 def get_charger_sessions(s: Session, installation_id: str, w: Window) -> dict:
-    rows = [x for x in s.scalars(select(C.ChargingSession).where(C.ChargingSession.installation_id == installation_id))
-            if w.contains(x.start_time_utc)]
+    rows = [x for x in _rows(s, C.ChargingSession, installation_id) if w.contains(x.start_time_utc)]
     return {
+        "unavailable_sources": _gaps(s, CHG),
         "sessions": [
             {"session_id": x.session_id, "start_time_utc": x.start_time_utc, "session_type": x.session_type,
              "session_status": x.session_status, "reported_error_code": x.reported_error_code,
@@ -72,10 +84,10 @@ def get_charger_sessions(s: Session, installation_id: str, w: Window) -> dict:
 
 
 def get_device_events(s: Session, installation_id: str, w: Window) -> dict:
-    rows = [x for x in s.scalars(select(C.DiagnosticEvent).where(C.DiagnosticEvent.installation_id == installation_id))
-            if w.contains(x.timestamp_utc)]
+    rows = [x for x in _rows(s, C.DiagnosticEvent, installation_id) if w.contains(x.timestamp_utc)]
     rows.sort(key=lambda r: r.timestamp_utc)
     return {
+        "unavailable_sources": _gaps(s, HEMS),
         "events": [
             {"event_id": x.event_id, "timestamp_utc": x.timestamp_utc, "device_id": x.device_id,
              "event_type": x.event_type, "severity": x.severity, "message": x.message,
@@ -89,9 +101,8 @@ def get_device_events(s: Session, installation_id: str, w: Window) -> dict:
 
 def correlate_command_response(s: Session, installation_id: str, w: Window) -> dict:
     """Match each HEMS command with the charger's response within 3 minutes."""
-    cmds = [x for x in s.scalars(select(C.DeviceCommand).where(C.DeviceCommand.installation_id == installation_id))
-            if w.contains(x.timestamp_utc)]
-    sessions = list(s.scalars(select(C.ChargingSession).where(C.ChargingSession.installation_id == installation_id)))
+    cmds = [x for x in _rows(s, C.DeviceCommand, installation_id) if w.contains(x.timestamp_utc)]
+    sessions = [x for x in _rows(s, C.ChargingSession, installation_id) if x.session_type == "v2h_discharge"]
     out = []
     for c in sorted(cmds, key=lambda r: r.timestamp_utc):
         t = parse(c.timestamp_utc)
@@ -116,14 +127,16 @@ def correlate_command_response(s: Session, installation_id: str, w: Window) -> d
             "charger_error_detail_available": r.error_detail_available if r else None,
             "verdict": verdict, "rejecting_system": system, "evidence_ids": ev,
         })
-    return {"commands": out, "evidence_ids": [e for c in out for e in c["evidence_ids"]]}
+    return {"commands": out, "evidence_ids": [e for c in out for e in c["evidence_ids"]],
+            "unavailable_sources": _gaps(s, HEMS, CHG)}
 
 
 # ============================================================ Energy Behaviour
 def get_energy_schedule(s: Session, installation_id: str, w: Window) -> dict:
-    rows = [x for x in s.scalars(select(C.EnergySchedule).where(C.EnergySchedule.installation_id == installation_id))
+    rows = [x for x in _rows(s, C.EnergySchedule, installation_id)
             if parse(x.start_time_utc) <= w.end and parse(x.end_time_utc) >= w.start]
     return {
+        "unavailable_sources": _gaps(s, HEMS),
         "schedules": [
             {"schedule_id": x.schedule_id, "action": x.action, "start_time_utc": x.start_time_utc,
              "end_time_utc": x.end_time_utc, "requested_power_kw": x.requested_power_kw, "enabled": x.enabled,
@@ -135,11 +148,11 @@ def get_energy_schedule(s: Session, installation_id: str, w: Window) -> dict:
 
 
 def get_soc_history(s: Session, installation_id: str, w: Window) -> dict:
-    rows = [x for x in s.scalars(select(C.EnergyMeasurement).where(
-        C.EnergyMeasurement.installation_id == installation_id, C.EnergyMeasurement.measurement_type == "ev_soc"))
-        if w.contains(x.timestamp_utc)]
+    rows = [x for x in _rows(s, C.EnergyMeasurement, installation_id, C.EnergyMeasurement.measurement_type == "ev_soc")
+            if w.contains(x.timestamp_utc)]
     rows.sort(key=lambda r: r.timestamp_utc)
     return {
+        "unavailable_sources": _gaps(s, HEMS),
         "samples": [{"timestamp_utc": x.timestamp_utc, "soc_pct": x.value,
                      "evidence_id": eid(x.source_system, x.source_record_id)} for x in rows],
         "evidence_ids": [eid(x.source_system, x.source_record_id) for x in rows],
@@ -148,9 +161,8 @@ def get_soc_history(s: Session, installation_id: str, w: Window) -> dict:
 
 def soc_at(s: Session, installation_id: str, at: datetime) -> dict | None:
     """Latest SOC sample at or before `at` (deterministic)."""
-    rows = [x for x in s.scalars(select(C.EnergyMeasurement).where(
-        C.EnergyMeasurement.installation_id == installation_id, C.EnergyMeasurement.measurement_type == "ev_soc"))
-        if parse(x.timestamp_utc) <= at]
+    rows = [x for x in _rows(s, C.EnergyMeasurement, installation_id, C.EnergyMeasurement.measurement_type == "ev_soc")
+            if parse(x.timestamp_utc) <= at]
     if not rows:
         return None
     x = max(rows, key=lambda r: r.timestamp_utc)
@@ -158,9 +170,9 @@ def soc_at(s: Session, installation_id: str, at: datetime) -> dict | None:
 
 
 def get_operating_constraints(s: Session, installation_id: str, at: datetime) -> dict:
-    rows = [x for x in s.scalars(select(C.OperatingConstraint).where(C.OperatingConstraint.installation_id == installation_id))
-            if parse(x.valid_from_utc) <= at]
+    rows = [x for x in _rows(s, C.OperatingConstraint, installation_id) if parse(x.valid_from_utc) <= at]
     return {
+        "unavailable_sources": _gaps(s, HEMS),
         "constraints": [
             {"constraint_id": x.constraint_id, "constraint_type": x.constraint_type, "threshold_value": x.threshold_value,
              "unit": x.unit, "valid_from_utc": x.valid_from_utc, "evidence_id": eid(x.source_system, x.source_record_id)}
@@ -172,9 +184,8 @@ def get_operating_constraints(s: Session, installation_id: str, at: datetime) ->
 
 def compare_expected_actual_power(s: Session, installation_id: str, w: Window) -> dict:
     sched = get_energy_schedule(s, installation_id, w)["schedules"]
-    meas = [x for x in s.scalars(select(C.EnergyMeasurement).where(
-        C.EnergyMeasurement.installation_id == installation_id, C.EnergyMeasurement.measurement_type == "charger_power"))
-        if w.contains(x.timestamp_utc)]
+    meas = [x for x in _rows(s, C.EnergyMeasurement, installation_id,
+                             C.EnergyMeasurement.measurement_type == "charger_power") if w.contains(x.timestamp_utc)]
     meas.sort(key=lambda r: r.timestamp_utc)
     rows = []
     for m in meas:
@@ -193,15 +204,16 @@ def compare_expected_actual_power(s: Session, installation_id: str, w: Window) -
         "max_discharge_kw": round(min([r["measured_kw"] for r in rows] + [0.0]), 3),
         "discharge_observed": bool(delivered),
         "evidence_ids": [r["evidence_id"] for r in rows],
+        "unavailable_sources": _gaps(s, HEMS, CHG),
     }
 
 
 # ========================================================= Security Correlation
 def get_configuration_changes(s: Session, installation_id: str, since: datetime) -> dict:
-    rows = [x for x in s.scalars(select(C.ConfigurationChange).where(C.ConfigurationChange.installation_id == installation_id))
-            if parse(x.timestamp_utc) >= since]
+    rows = [x for x in _rows(s, C.ConfigurationChange, installation_id) if parse(x.timestamp_utc) >= since]
     rows.sort(key=lambda r: r.timestamp_utc)
     return {
+        "unavailable_sources": _gaps(s, AUDIT),
         "changes": [
             {"change_id": x.change_id, "timestamp_utc": x.timestamp_utc, "setting_name": x.setting_name,
              "old_value": x.old_value, "new_value": x.new_value, "actor_type": x.actor_type, "actor_ref": x.actor_ref,
@@ -243,6 +255,179 @@ def correlate_changes_with_incident(s: Session, installation_id: str, incident_a
         "needs_human_review": any(c["needs_human_review"] for c in out),
         "security_conclusion": "not_determined",  # tools never conclude an attack
         "evidence_ids": [c["evidence_id"] for c in flagged] or [c["evidence_id"] for c in out],
+        "unavailable_sources": _gaps(s, AUDIT),
+    }
+
+
+# =============================================================== Grid & Tariff
+SAMPLE_HOURS = 0.25  # charger meter values arrive every 15 minutes; each covers the following 15 minutes
+
+
+def get_tariff_contract(s: Session, installation_id: str) -> dict:
+    rows = sorted(_rows(s, C.TariffContract, installation_id), key=lambda r: r.valid_from_utc)
+    c = rows[-1] if rows else None
+    return {
+        "contract": {"contract_id": c.contract_id, "contract_type": c.contract_type,
+                     "fixed_price_eur_kwh": c.fixed_price_eur_kwh, "dynamic_markup_eur_kwh": c.dynamic_markup_eur_kwh,
+                     "grid_steering_agreement": c.grid_steering_agreement,
+                     "steering_compensation": c.steering_compensation, "valid_from_utc": c.valid_from_utc,
+                     "evidence_id": eid(c.source_system, c.source_record_id)} if c else None,
+        "evidence_ids": [eid(c.source_system, c.source_record_id)] if c else [],
+        "unavailable_sources": _gaps(s, SUP),
+    }
+
+
+def get_steering_events(s: Session, installation_id: str, w: Window) -> dict:
+    """Grid-steering events from the supplier, with the HEMS-measured device response during each one."""
+    rows = [x for x in _rows(s, C.GridSteeringEvent, installation_id)
+            if parse(x.start_time_utc) <= w.end and parse(x.end_time_utc) >= w.start]
+    rows.sort(key=lambda r: r.start_time_utc)
+    battery = sorted(_rows(s, C.EnergyMeasurement, installation_id, C.EnergyMeasurement.measurement_type == "battery_power"),
+                     key=lambda m: m.timestamp_utc)
+    out = []
+    for x in rows:
+        st, en = parse(x.start_time_utc), parse(x.end_time_utc)
+        during = [m for m in battery if st <= parse(m.timestamp_utc) < en] if x.device_type == "home_battery" else []
+        before = [m for m in battery if parse(m.timestamp_utc) < st][-1:] if during else []
+        after = [m for m in battery if parse(m.timestamp_utc) >= en][:1] if during else []
+        out.append({
+            "steering_id": x.steering_id, "device_type": x.device_type, "start_time_utc": x.start_time_utc,
+            "end_time_utc": x.end_time_utc, "duration_min": int((en - st).total_seconds() // 60),
+            "requested_max_kw": x.requested_max_kw, "reason": x.reason, "grid_operator": x.grid_operator,
+            "evidence_id": eid(x.source_system, x.source_record_id),
+            "device_response": {
+                "samples_during": len(during),
+                "max_abs_kw_during": round(max([abs(m.value) for m in during], default=0.0), 3) if during else None,
+                "limit_respected": all(abs(m.value) <= x.requested_max_kw + 0.05 for m in during) if during else None,
+                "kw_before": before[0].value if before else None, "kw_after": after[0].value if after else None,
+                "evidence_ids": [eid(m.source_system, m.source_record_id) for m in before + during[:1] + after],
+            },
+        })
+    return {"events": out,
+            "evidence_ids": [e["evidence_id"] for e in out] + [i for e in out for i in e["device_response"]["evidence_ids"]],
+            "unavailable_sources": _gaps(s, SUP) + (_gaps(s, HEMS) if rows else [])}
+
+
+def _prices(s: Session, start: datetime, end: datetime) -> list[C.PriceSeries]:
+    rows = [x for x in s.scalars(select(C.PriceSeries)) if parse(x.start_time_utc) < end and parse(x.end_time_utc) > start]
+    return sorted(rows, key=lambda r: r.start_time_utc)
+
+
+def get_price_series(s: Session, w: Window) -> dict:
+    rows = _prices(s, w.start, w.end)
+    items = [{"start_time_utc": x.start_time_utc, "end_time_utc": x.end_time_utc, "price_eur_kwh": x.price_eur_kwh,
+              "evidence_id": eid(x.source_system, x.source_record_id)} for x in rows]
+    lo = min(items, key=lambda p: p["price_eur_kwh"]) if items else None
+    hi = max(items, key=lambda p: p["price_eur_kwh"]) if items else None
+    return {"market": rows[0].market if rows else None, "prices": items, "cheapest": lo, "most_expensive": hi,
+            "evidence_ids": [p["evidence_id"] for p in items], "unavailable_sources": []}
+
+
+def compare_actual_vs_cheapest(s: Session, installation_id: str, w: Window) -> dict:
+    """Actual EV charging cost vs the cheapest hours between plug-in and departure.
+
+    Deterministic: energy per hour comes from charger meter values (15-min samples), the unit price from the
+    supplier contract (fixed, or day-ahead price + markup), and the cheapest plan fills the cheapest whole hours
+    between plug-in and the departure time, at the session's own charging power, until the same energy is met.
+    Anything that cannot be established is returned as None with a reason in `missing`.
+    """
+    contract = get_tariff_contract(s, installation_id)["contract"]
+    sessions = [x for x in _rows(s, C.ChargingSession, installation_id)
+                if x.session_type == "charge" and w.contains(x.start_time_utc)]
+    sessions.sort(key=lambda r: r.start_time_utc)
+    power = [m for m in _rows(s, C.EnergyMeasurement, installation_id, C.EnergyMeasurement.measurement_type == "charger_power")
+             if m.value > 0]
+    plans = [x for x in _rows(s, C.EnergySchedule, installation_id) if x.action == "smart_charge"]
+    missing: list[str] = []
+    if not contract:
+        missing.append("Tariff contract unknown, so prices per kWh cannot be established.")
+
+    def unit_price(hour_start: datetime) -> tuple[float | None, str | None]:
+        if not contract:
+            return None, None
+        if contract["contract_type"] == "fixed":
+            return contract["fixed_price_eur_kwh"], contract["evidence_id"]
+        p = _prices(s, hour_start, hour_start + timedelta(hours=1))
+        if not p:
+            return None, None
+        return round(p[0].price_eur_kwh + (contract["dynamic_markup_eur_kwh"] or 0.0), 5), eid(p[0].source_system, p[0].source_record_id)
+
+    out = []
+    for x in sessions:
+        st = parse(x.start_time_utc)
+        en = parse(x.end_time_utc) if x.end_time_utc else w.end
+        samples = [m for m in power if m.device_id == x.charger_device_id and st <= parse(m.timestamp_utc) < en]
+        by_hour: dict[datetime, float] = {}
+        for m in samples:
+            h = parse(m.timestamp_utc).replace(minute=0, second=0)
+            by_hour[h] = by_hour.get(h, 0.0) + m.value * SAMPLE_HOURS
+        energy = round(sum(by_hour.values()), 3)
+        max_kw = max((m.value for m in samples), default=0.0)
+        plan = next((p for p in plans if parse(p.start_time_utc) <= st <= parse(p.end_time_utc)), None)
+        departure = parse(plan.end_time_utc) if plan else None
+        plug_in = parse(plan.start_time_utc) if plan else st
+        ev_ids = [eid(x.source_system, x.source_record_id)] + ([eid(plan.source_system, plan.source_record_id)] if plan else [])
+
+        actual_hours, actual_cost = [], 0.0
+        for h, kwh in sorted(by_hour.items()):
+            price, pid = unit_price(h)
+            actual_hours.append({"start_time_utc": fmt(h), "kwh": round(kwh, 3), "price_eur_kwh": price, "evidence_id": pid})
+            actual_cost = None if price is None or actual_cost is None else actual_cost + kwh * price
+        if actual_cost is None or not contract:
+            actual_cost = None
+            if contract:
+                missing.append(f"Price missing for at least one charging hour of {x.session_id}.")
+
+        cheapest_hours, cheapest_cost = [], None
+        if departure is None:
+            missing.append(f"Departure time unknown for {x.session_id}, so the cheapest plan cannot be calculated.")
+        elif contract and max_kw > 0:
+            first = plug_in.replace(minute=0, second=0) + (timedelta(hours=1) if plug_in.minute or plug_in.second else timedelta(0))
+            candidates = []
+            h = first
+            while h + timedelta(hours=1) <= departure:
+                price, pid = unit_price(h)
+                if price is not None:
+                    candidates.append((price, h, pid))
+                h += timedelta(hours=1)
+            left, cheapest_cost = energy, 0.0
+            for price, h, pid in sorted(candidates, key=lambda c: (c[0], c[1])):
+                if left <= 1e-9:
+                    break
+                kwh = min(max_kw, left)
+                cheapest_hours.append({"start_time_utc": fmt(h), "kwh": round(kwh, 3), "price_eur_kwh": price, "evidence_id": pid})
+                cheapest_cost += kwh * price
+                left -= kwh
+            if left > 1e-6:
+                cheapest_cost = None
+                missing.append(f"Not enough priced hours before departure for {x.session_id}.")
+            cheapest_hours.sort(key=lambda c: c["start_time_utc"])
+
+        r2 = lambda v: round(v, 2) if v is not None else None  # noqa: E731
+        saving = r2(actual_cost - cheapest_cost) if actual_cost is not None and cheapest_cost is not None else None
+        out.append({
+            "session_id": x.session_id, "start_time_utc": x.start_time_utc, "end_time_utc": x.end_time_utc,
+            "energy_kwh": energy, "charging_kw": max_kw, "plug_in_utc": fmt(plug_in),
+            "departure_utc": fmt(departure) if departure else None, "smart_charging_on": bool(plan.enabled) if plan else None,
+            "actual_cost_eur": r2(actual_cost), "actual_hours": actual_hours,
+            "cheapest_cost_eur": r2(cheapest_cost), "cheapest_hours": cheapest_hours, "saving_eur": saving,
+            "evidence_ids": ev_ids + [a["evidence_id"] for a in actual_hours if a["evidence_id"]]
+                            + [c["evidence_id"] for c in cheapest_hours if c["evidence_id"]],
+        })
+
+    known = [o for o in out if o["saving_eur"] is not None]
+    total = lambda k: round(sum(o[k] for o in known), 2) if known else None  # noqa: E731
+    return {
+        "contract_type": contract["contract_type"] if contract else None,
+        "contract_evidence_id": contract["evidence_id"] if contract else None,
+        "sessions": out,
+        "total_energy_kwh": round(sum(o["energy_kwh"] for o in out), 3),
+        "total_actual_eur": total("actual_cost_eur"), "total_cheapest_eur": total("cheapest_cost_eur"),
+        "total_saving_eur": total("saving_eur"),
+        "complete": bool(out) and len(known) == len(out),
+        "missing": [m for m in dict.fromkeys(missing) if m],
+        "evidence_ids": list(dict.fromkeys(([contract["evidence_id"]] if contract else []) + [i for o in out for i in o["evidence_ids"]])),
+        "unavailable_sources": _gaps(s, SUP, CHG, HEMS),
     }
 
 

@@ -3,6 +3,7 @@ import SwiftUI
 
 struct HomeView: View {
     @EnvironmentObject var app: AppState
+    @State private var showPrivacy = false
 
     var body: some View {
         NavigationStack {
@@ -15,6 +16,7 @@ struct HomeView: View {
                         header(o)
                         evCard(o)
                         v2hCard(o)
+                        if let s = app.savings { SavingsCard(savings: s) { showPrivacy = true } }
                         HStack(spacing: 14) {
                             chargerCard(o)
                             loadCard(o)
@@ -31,7 +33,12 @@ struct HomeView: View {
             .navigationTitle("My Home")
             .toolbar {
                 ToolbarItem(placement: .primaryAction) { ScenarioMenu() }
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { showPrivacy = true } label: { Image(systemName: "lock.shield") }
+                        .accessibilityLabel("Data & privacy")
+                }
             }
+            .sheet(isPresented: $showPrivacy) { PrivacyView().environmentObject(app) }
             .refreshable { await app.refresh() }
         }
     }
@@ -219,5 +226,98 @@ struct ScenarioMenu: View {
             Label("Demo", systemImage: "slider.horizontal.3")
         }
         .sheet(isPresented: $showSettings) { SettingsView() }
+    }
+}
+
+// MARK: - Savings
+
+struct SavingsCard: View {
+    let savings: Savings
+    var openPrivacy: () -> Void
+
+    private func eur(_ v: Double?) -> String { v.map { String(format: "€%.2f", $0) } ?? "–" }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                SectionLabel(text: "Savings · last 7 days", icon: "eurosign.circle")
+                Spacer()
+                if let c = savings.contractType {
+                    Text("\(c) price").font(.caption2.weight(.medium)).foregroundColor(Theme.muted)
+                }
+            }
+            if savings.contractType != nil && !savings.sessions.isEmpty {
+                HStack(spacing: 8) {
+                    stat("You paid", eur(savings.actualEur), accent: false)
+                    stat("Cheapest", eur(savings.cheapestEur), accent: false)
+                    stat("Could save", eur(savings.savingEur), accent: true)
+                }
+                if let last = savings.sessions.last, !last.cheapestHours.isEmpty, (savings.savingEur ?? 0) > 0 {
+                    Text("Last charge \(last.start)–\(last.end): \(eur(last.actualEur)). Cheaper hours before your \(last.departure ?? "") departure: \(last.cheapestHours.joined(separator: ", ")).")
+                        .font(.caption).foregroundColor(Theme.muted)
+                }
+            }
+            Text(savings.tip).font(.subheadline).foregroundColor(Theme.navy)
+            if !savings.unavailableSources.isEmpty {
+                Button("Open Data & privacy", action: openPrivacy).font(.caption.weight(.semibold))
+            }
+        }
+        .card()
+    }
+
+    private func stat(_ label: String, _ value: String, accent: Bool) -> some View {
+        VStack(spacing: 2) {
+            Text(label).font(.caption2).foregroundColor(Theme.muted)
+            Text(value).font(.headline).foregroundColor(accent ? Theme.teal : Theme.navy)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 8)
+        .background(accent ? Theme.tealSoft : Theme.page)
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+}
+
+// MARK: - Data & privacy
+
+struct PrivacyView: View {
+    @EnvironmentObject var app: AppState
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    ForEach(app.consents) { c in
+                        if c.toggleable {
+                            Toggle(isOn: Binding(get: { c.active }, set: { on in Task { await app.setConsent(c, on: on) } })) {
+                                row(c)
+                            }
+                            .tint(Theme.teal)
+                        } else {
+                            HStack {
+                                row(c)
+                                Spacer()
+                                Text("Always on").font(.caption).foregroundColor(Theme.muted)
+                            }
+                        }
+                    }
+                } footer: {
+                    Text("If you turn a source off, the assistant will tell you that data is unavailable instead of using it.")
+                }
+            }
+            .navigationTitle("Data & privacy")
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+            .task { await app.loadConsents() }
+        }
+    }
+
+    private func row(_ c: DataConsent) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(c.label).font(.body.weight(.medium))
+            Text(c.scope).font(.caption).foregroundColor(Theme.muted)
+            Text(c.legalBasis.hasPrefix("EU Data Act") ? "EU Data Act: you chose HelioHEMS to receive this data"
+                 : c.legalBasis == "contract" ? "Needed for your HelioHEMS service contract" : c.legalBasis)
+                .font(.caption2).foregroundColor(Theme.muted)
+        }
     }
 }

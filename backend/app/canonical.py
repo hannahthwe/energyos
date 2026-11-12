@@ -188,6 +188,47 @@ class PreviousInteraction(Base):
     source_record_id: Mapped[str] = mapped_column(String)
 
 
+class TariffContract(Base):
+    __tablename__ = "cc_tariff_contracts"
+    contract_id: Mapped[str] = mapped_column(String, primary_key=True)
+    installation_id: Mapped[str] = mapped_column(String)
+    contract_type: Mapped[str] = mapped_column(String)  # fixed | dynamic
+    fixed_price_eur_kwh: Mapped[float | None] = mapped_column(Float, nullable=True)
+    dynamic_markup_eur_kwh: Mapped[float | None] = mapped_column(Float, nullable=True)  # added to the spot price
+    grid_steering_agreement: Mapped[bool] = mapped_column(Boolean)
+    steering_compensation: Mapped[str | None] = mapped_column(String, nullable=True)
+    valid_from_utc: Mapped[str] = mapped_column(String)
+    source_system: Mapped[str] = mapped_column(String)
+    source_record_id: Mapped[str] = mapped_column(String)
+
+
+class PriceSeries(Base):
+    """Hourly day-ahead market price. Public data, not tied to an installation."""
+
+    __tablename__ = "cc_price_series"
+    price_id: Mapped[str] = mapped_column(String, primary_key=True)
+    market: Mapped[str] = mapped_column(String)
+    start_time_utc: Mapped[str] = mapped_column(String)
+    end_time_utc: Mapped[str] = mapped_column(String)
+    price_eur_kwh: Mapped[float] = mapped_column(Float)
+    source_system: Mapped[str] = mapped_column(String)
+    source_record_id: Mapped[str] = mapped_column(String)
+
+
+class GridSteeringEvent(Base):
+    __tablename__ = "cc_grid_steering_events"
+    steering_id: Mapped[str] = mapped_column(String, primary_key=True)
+    installation_id: Mapped[str] = mapped_column(String)
+    device_type: Mapped[str] = mapped_column(String)  # home_battery | ev_charger | heat_pump (supplier's category)
+    start_time_utc: Mapped[str] = mapped_column(String)
+    end_time_utc: Mapped[str] = mapped_column(String)
+    requested_max_kw: Mapped[float] = mapped_column(Float)
+    reason: Mapped[str] = mapped_column(String)
+    grid_operator: Mapped[str] = mapped_column(String)
+    source_system: Mapped[str] = mapped_column(String)
+    source_record_id: Mapped[str] = mapped_column(String)
+
+
 class EvidenceRecord(Base):
     __tablename__ = "cc_evidence_records"
     evidence_id: Mapped[str] = mapped_column(String, primary_key=True)
@@ -241,12 +282,21 @@ class SupportMessage(Base):
 
 
 class ConsentRecord(Base):
+    """Two kinds of record:
+    - data access (scope="data_access:<source>"): may ConnectedCare read this source at all?
+    - case share  (scope="case_share"): homeowner shared a diagnosis with support (case_id, evidence_scope)."""
+
     __tablename__ = "cc_consent_records"
     consent_id: Mapped[str] = mapped_column(String, primary_key=True)
     customer_id: Mapped[str] = mapped_column(String)
-    case_id: Mapped[str] = mapped_column(String)
-    evidence_scope: Mapped[str] = mapped_column(Text)  # JSON list of evidence ids
+    case_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    evidence_scope: Mapped[str] = mapped_column(Text, default="[]")  # JSON list of evidence ids (case share)
     approved_at: Mapped[str] = mapped_column(String)
+    source_system: Mapped[str | None] = mapped_column(String, nullable=True)
+    scope: Mapped[str] = mapped_column(String, default="case_share")
+    legal_basis: Mapped[str] = mapped_column(String, default="contract")  # "EU Data Act - user-designated recipient" | "contract"
+    expires_at: Mapped[str | None] = mapped_column(String, nullable=True)
+    revoked_at: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
 class DiagnosisRun(Base):
@@ -269,5 +319,5 @@ class DemoState(Base):
 DERIVED_TABLES = [
     Customer, Installation, Device, SourceDeviceMapping, EnergyMeasurement, EnergySchedule,
     OperatingConstraint, DeviceCommand, ChargingSession, DiagnosticEvent, ConfigurationChange,
-    KnowledgeArticle, PreviousInteraction, EvidenceRecord,
+    KnowledgeArticle, PreviousInteraction, TariffContract, PriceSeries, GridSteeringEvent, EvidenceRecord,
 ]

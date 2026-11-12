@@ -9,7 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from . import canonical as C
-from . import orchestrator, state
+from . import consents, orchestrator, state
 from . import tools as T
 from .visibility import allowed_levels, filter_evidence
 
@@ -79,7 +79,11 @@ def create_case_from_homeowner(s: Session, run_id: str, approved: bool, note: st
         case_id = f"CASE-{n}"
     title = {"soc_reserve": "V2H did not discharge: EV below minimum reserve",
              "charger_rejection": "V2H did not discharge: charger rejected session",
-             "config_change_raised_reserve": "V2H blocked after unexpected reserve change"}.get(
+             "config_change_raised_reserve": "V2H blocked after unexpected reserve change",
+             "grid_steering": "Battery paused by grid steering (no fault)",
+             "peak_charging": "Question about EV charging cost",
+             "no_savings": "Question about EV charging cost",
+             "data_unavailable": "Diagnosis limited: data sharing turned off"}.get(
         support["likely_cause"], "V2H did not discharge")
     c = C.SupportCase(case_id=case_id, tenant_id=state.TENANT_ID, customer_id=state.CUSTOMER_ID,
                       installation_id=state.INSTALLATION_ID, title=title,
@@ -97,7 +101,8 @@ def create_case_from_homeowner(s: Session, run_id: str, approved: bool, note: st
             s.add(C.CaseEvidence(case_id=case_id, evidence_id=e["evidence_id"], shared_by_homeowner=True,
                                  summary=e["summary"], visibility_level=e["visibility_level"]))
     s.add(C.ConsentRecord(consent_id=f"CON-{uuid.uuid4().hex[:8].upper()}", customer_id=state.CUSTOMER_ID,
-                          case_id=case_id, evidence_scope=json.dumps(shared_ids), approved_at=now()))
+                          case_id=case_id, evidence_scope=json.dumps(shared_ids), approved_at=now(),
+                          scope="case_share", legal_basis=consents.CONTRACT))
     _msg(s, case_id, "homeowner", "question", home["question"], "homeowner_safe")
     _msg(s, case_id, "system", "note",
          f"Homeowner approved sharing the diagnostic summary and {len(shared_ids)} evidence record(s). "
@@ -129,7 +134,8 @@ def get_case(s: Session, case_id: str, role: str = "support") -> dict:
     levels = allowed_levels(role)
     msgs = sorted(s.scalars(select(C.SupportMessage).where(C.SupportMessage.case_id == case_id)), key=lambda m: m.created_at)
     ev = list(s.scalars(select(C.CaseEvidence).where(C.CaseEvidence.case_id == case_id)))
-    consent = s.scalars(select(C.ConsentRecord).where(C.ConsentRecord.case_id == case_id)).first()
+    consent = s.scalars(select(C.ConsentRecord).where(C.ConsentRecord.case_id == case_id,
+                                                      C.ConsentRecord.scope == "case_share")).first()
     prof = T.get_customer_profile(s, c.installation_id)
     prev = T.get_previous_cases(s, c.customer_id)["cases"]
     snap = json.loads(c.snapshot_json or "{}")
@@ -148,6 +154,7 @@ def get_case(s: Session, case_id: str, role: str = "support") -> dict:
                       "shared_by_homeowner": e.shared_by_homeowner} for e in ev if e.visibility_level in levels],
         "consent": {"consent_id": consent.consent_id, "approved_at": consent.approved_at,
                     "evidence_scope": json.loads(consent.evidence_scope)} if consent else None,
+        "data_consents": consents.case_view(s, c.customer_id),
         "diagnosis": snap or None,
         "escalation": json.loads(c.escalation_json) if c.escalation_json else None,
     }
@@ -210,6 +217,14 @@ def draft_response(s: Session, case_id: str) -> dict:
                                          "car's charge at the time, so the Hub did not use the car. Could you let us know "
                                          "whether you or your installer changed this setting yesterday evening? Until we "
                                          "hear from you, please don't share your app login with anyone."),
+        "grid_steering": ("We checked your system's records from last night. Your home battery paused between 18:00 and "
+                          "19:00 because the local grid operator asked your energy supplier to limit it while the grid was "
+                          "congested. Your Hub followed that request and went back to normal at 19:00. Nothing is faulty, "
+                          "and you are compensated for this through your energy contract."),
+        "peak_charging": ("We checked your charging from last night. Smart charging was switched off, so your car charged "
+                          "straight away during the evening price peak. Turning on smart charging in the Helio app "
+                          "(Charging > Smart charging) with your 07:00 departure time lets the Hub use the cheapest night "
+                          "hours instead."),
     }.get(cause, "We have reviewed your system's records and will follow up shortly.")
     text = f"Hi {first},\n\n{body}\n\nBest regards,\nHelioHEMS Support"
     msg = _msg(s, case_id, "support", "draft_response", text, "homeowner_safe")

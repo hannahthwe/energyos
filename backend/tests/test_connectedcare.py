@@ -223,5 +223,6 @@ def test_case_workflow_persists_across_sessions(client):
 
 def test_data_model_endpoint(client):
     dm = client.get("/api/support/data-model", headers=SUPPORT).json()
-    assert {x["source_system"] for x in dm["sources"]} == {"crm", "hems_backend", "charger_integration", "knowledge_base", "config_audit"}
+    assert {x["source_system"] for x in dm["sources"]} == {"crm", "hems_backend", "charger_integration", "knowledge_base", "config_audit",
+                                                          "energy_supplier", "market_data"}
     assert dm["identity_chain"][0]["id"] == "CUST-88412" and dm["transforms"]

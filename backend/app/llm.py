@@ -1,6 +1,6 @@
 """Claude-powered orchestration (optional; enabled when ANTHROPIC_API_KEY is set).
 
-Claude sees the four specialist agents as tools, decides which to run, and
+Claude sees the five specialist agents as tools, decides which to run, and
 submits a structured diagnosis through `submit_diagnosis`. Everything Claude
 returns is validated against the evidence the agents actually produced:
 uncited or unknown evidence IDs are removed, and homeowner answers that leak
@@ -20,6 +20,11 @@ EFFORT = os.environ.get("CONNECTEDCARE_EFFORT", "low")  # fast enough for a live
 MAX_TURNS = 8
 
 
+# Substrings that must never reach the homeowner: evidence IDs, internal record refs, codes and actors.
+HOMEOWNER_FORBIDDEN = {"EVD-", "api_client", "cli-", "audit", "V2H_SESSION_REJECTED", "CC-DEV", "VS-",
+                       "CC-TAR", "CC-GSE", "CC-PRC", "GSR-", "DA-SYN", "NW-55120", "SP-1900"}
+
+
 class LLMUnavailable(Exception):
     pass
 
@@ -31,13 +36,16 @@ def enabled() -> bool:
 
 
 SYSTEM = """You are the ConnectedCare AI orchestrator for HelioHEMS, a home energy management system manufacturer.
-You diagnose connected home-energy problems (HEMS, bidirectional EV charger, vehicle-to-home) for one installation.
+You diagnose connected home-energy problems (HEMS, home battery, bidirectional EV charger, vehicle-to-home) and
+explain energy costs for one installation.
 
-You have four specialist agents as tools. Each runs deterministic checks over HelioHEMS's unified data model
-(CRM, HEMS backend, the authorised charger integration, knowledge base and configuration audit log) and returns
-structured findings with evidence IDs. Run the agents that are relevant to the question; usually Energy Behaviour
-and Technical Diagnostics first, then Support Resolution with search terms that fit the findings. Run Security
-Correlation when a setting may have changed or the question asks about settings or security.
+You have five specialist agents as tools. Each runs deterministic checks over HelioHEMS's unified data model
+(CRM, HEMS backend, the authorised charger integration, the energy supplier, public market prices, knowledge base
+and configuration audit log) and returns structured findings with evidence IDs. Run the agents that are relevant
+to the question; for V2H failures usually Energy Behaviour and Technical Diagnostics first, then Support Resolution
+with search terms that fit the findings. Run Security Correlation when a setting may have changed or the question
+asks about settings or security. Run Grid & Tariff when a device was paused or limited, or the question is about
+grid steering, prices, tariffs, charging cost or savings.
 
 Rules:
 - Use only what the agents return. Never invent data, causes, timestamps or tool results.
@@ -45,6 +53,9 @@ Rules:
 - If something cannot be established from the data, say so under missing information. HelioHEMS cannot see the
   third-party charger's internal logs; never guess a charger's internal rejection reason.
 - A configuration change is an observation, not proof of an attack. Do not claim a cyberattack.
+- Euro amounts, cheapest hours and savings come only from the Grid & Tariff agent's calculation; never compute
+  or round your own figures differently. A grid-steering pause is not a fault; say whether compensation is on record.
+- If an agent reports a source as unavailable (no active consent), say that data is unavailable. Never infer it.
 - Cite evidence IDs exactly as the agents returned them.
 - Finish by calling submit_diagnosis exactly once."""
 
@@ -72,6 +83,11 @@ def _agent_tools() -> list[dict]:
          "description": "Security Correlation Agent: configuration changes from the audit log and their timing relative to "
                         "the incident. Distinguishes observed changes from security conclusions. Tools: "
                         "get_configuration_changes, correlate_changes_with_incident."},
+        {"name": "run_grid_tariff_agent", "strict": True, "input_schema": empty,
+         "description": "Grid & Tariff Agent: energy supplier contract (fixed or dynamic), grid-steering events from the "
+                        "grid operator and the device's measured response, hourly day-ahead prices, and EV charging cost "
+                        "vs the cheapest hours that still meet the departure time. Tools: get_tariff_contract, "
+                        "get_steering_events, get_price_series, compare_actual_vs_cheapest."},
         {"name": "run_support_resolution_agent", "strict": True,
          "description": "Support Resolution Agent: CRM customer profile, previous cases, and approved knowledge-base "
                         "articles. Tools: get_customer_profile, get_previous_cases, search_knowledge_base.",
@@ -112,7 +128,8 @@ def _view_for(result: A.AgentResult, role: str, s) -> dict:
     return {"agent": d["name"], "status": d["status"], "plain_language_findings": d["homeowner_notes"],
             "homeowner_safe_observations": safe_obs,
             "evidence_ids": [i for i in d["evidence_ids"] if vis.get(i) in levels],
-            "missing_information_count": len(d["missing_information"])}
+            "missing_information_count": len(d["missing_information"]),
+            "unavailable_data": [u["homeowner_message"] for u in d["unavailable_sources"]]}
 
 
 def orchestrate(ctx: A.Ctx, question: str, role: str) -> tuple[dict, dict]:
@@ -138,11 +155,14 @@ def orchestrate(ctx: A.Ctx, question: str, role: str) -> tuple[dict, dict]:
             soc = (results[A.ENERGY.key].signals.get("soc_pct") if A.ENERGY.key in results
                    else (T.soc_at(ctx.s, ctx.installation_id, ctx.incident_at) or {}).get("soc_pct"))
             r = A.SECURITY.run(ctx, soc)
+        elif name == "run_grid_tariff_agent":
+            r = A.GRID.run(ctx)
         elif name == "run_support_resolution_agent":
             terms = [t.lower() for t in args.get("search_terms") or []] or kb_terms(
                 results.get(A.ENERGY.key, A.not_used(A.ENERGY, "")).signals,
                 results.get(A.TECH.key, A.not_used(A.TECH, "")).signals,
-                results.get(A.SECURITY.key, A.not_used(A.SECURITY, "")).signals)
+                results.get(A.SECURITY.key, A.not_used(A.SECURITY, "")).signals,
+                results.get(A.GRID.key, A.not_used(A.GRID, "")).signals)
             r = A.SUPPORT.run(ctx, terms, include_internal=role != "homeowner")
         else:
             raise KeyError(name)
@@ -195,7 +215,7 @@ def orchestrate(ctx: A.Ctx, question: str, role: str) -> tuple[dict, dict]:
 
 def validate(sub: dict, role: str, seen_ids: set[str], ctx: A.Ctx) -> dict:
     if role == "homeowner":
-        forbidden = {"EVD-", "api_client", "cli-", "audit", "V2H_SESSION_REJECTED", "CC-DEV", "VS-"}
+        forbidden = HOMEOWNER_FORBIDDEN
         blob = json.dumps(sub)
         hits = [f for f in forbidden if f.lower() in blob.lower()]
         if hits:

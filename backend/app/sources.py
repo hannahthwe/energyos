@@ -8,6 +8,8 @@ the canonical model.
     HEMS backend   home_uid, asset_key, requested_watts         epoch seconds / ms, watts
     Charger API    chargepoint_ref, session_state, power_kw     ISO-8601 with offset, kW, +export
     KB / audit     article_code, audit_seq, param_path          ISO strings
+    Supplier       contract_no, supply_point_ref, steering_ref  local "YYYY-MM-DD HH:MM" + tz name, kW
+    Market data    bidding_zone, delivery_hour                  local "YYYY-MM-DD HH:00" + tz name, EUR/MWh
 """
 from __future__ import annotations
 
@@ -42,7 +44,7 @@ class CrmRegisteredAsset(Base):
     __tablename__ = "crm_registered_assets"
     asset_reg_id: Mapped[str] = mapped_column(String, primary_key=True)
     site_ref: Mapped[str] = mapped_column(String)
-    product_category: Mapped[str] = mapped_column(String)  # "HEMS Gateway" | "Bidirectional Charger" | "Electric Vehicle"
+    product_category: Mapped[str] = mapped_column(String)  # "HEMS Gateway" | "Bidirectional Charger" | "Electric Vehicle" | "Home Battery"
     brand: Mapped[str] = mapped_column(String)
     product_model: Mapped[str] = mapped_column(String)
     serial_no: Mapped[str] = mapped_column(String)
@@ -58,6 +60,18 @@ class CrmCase(Base):
     closed_state: Mapped[str] = mapped_column(String)
     resolution_notes: Mapped[str] = mapped_column(Text)
     channel: Mapped[str] = mapped_column(String)
+
+
+class CrmSupplyPoint(Base):
+    """Verified link between a CRM site and the energy supplier's meter point.
+    The only trusted way to attach supplier records to an installation."""
+
+    __tablename__ = "crm_supply_points"
+    supply_point_ref: Mapped[str] = mapped_column(String, primary_key=True)
+    site_ref: Mapped[str] = mapped_column(String)
+    supplier_name: Mapped[str] = mapped_column(String)
+    verified_by: Mapped[str] = mapped_column(String)
+    verified_at: Mapped[str] = mapped_column(String)
 
 
 class CrmCommissioning(Base):
@@ -88,7 +102,7 @@ class HemsAsset(Base):
     __tablename__ = "hems_assets"
     asset_key: Mapped[str] = mapped_column(String, primary_key=True)
     home_uid: Mapped[str] = mapped_column(String)
-    asset_class: Mapped[str] = mapped_column(String)  # "gw" | "evse" | "ev"
+    asset_class: Mapped[str] = mapped_column(String)  # "gw" | "evse" | "ev" | "bat"
     vendor: Mapped[str] = mapped_column(String)
     hw_model: Mapped[str] = mapped_column(String)
     sw_ver: Mapped[str] = mapped_column(String)
@@ -103,7 +117,7 @@ class HemsSchedule(Base):
     asset_key: Mapped[str] = mapped_column(String)
     begins_epoch: Mapped[int] = mapped_column(Integer)
     ends_epoch: Mapped[int] = mapped_column(Integer)
-    mode: Mapped[str] = mapped_column(String)  # "V2H_DISCHARGE" | "SMART_CHARGE"
+    mode: Mapped[str] = mapped_column(String)  # "V2H_DISCHARGE" | "SMART_CHARGE" (ends = departure) | "BATTERY_DISCHARGE"
     requested_watts: Mapped[int] = mapped_column(Integer)  # magnitude, always positive
     active: Mapped[int] = mapped_column(Integer)  # 1 / 0
 
@@ -135,7 +149,7 @@ class HemsTelemetry(Base):
     home_uid: Mapped[str] = mapped_column(String)
     asset_key: Mapped[str] = mapped_column(String)
     ts_epoch_ms: Mapped[int] = mapped_column(Integer)
-    channel: Mapped[str] = mapped_column(String)  # "ev_soc_pct" | "house_load_w" | "pv_w"
+    channel: Mapped[str] = mapped_column(String)  # "ev_soc_pct" | "house_load_w" | "pv_w" | "bat_w" (+ = discharging)
     reading: Mapped[float] = mapped_column(Float)
 
 
@@ -207,15 +221,53 @@ class AuditConfigLog(Base):
     client_id: Mapped[str] = mapped_column(String)
 
 
+# ------------------------------------------------- Source 5: Energy supplier
+class SupContract(Base):
+    __tablename__ = "sup_contracts"
+    contract_no: Mapped[str] = mapped_column(String, primary_key=True)
+    supply_point_ref: Mapped[str] = mapped_column(String)
+    tariff_kind: Mapped[str] = mapped_column(String)  # "FIX" | "DYN"
+    fixed_rate_ct_kwh: Mapped[float | None] = mapped_column(Float, nullable=True)  # cents/kWh
+    dyn_markup_ct_kwh: Mapped[float | None] = mapped_column(Float, nullable=True)  # cents/kWh on top of spot
+    steering_agreement: Mapped[bool] = mapped_column(Boolean, default=False)
+    steering_compensation: Mapped[str | None] = mapped_column(String, nullable=True)
+    valid_from: Mapped[str] = mapped_column(String)  # "2026-01-01"
+
+
+class SupSteeringEvent(Base):
+    __tablename__ = "sup_steering_events"
+    steering_ref: Mapped[str] = mapped_column(String, primary_key=True)
+    contract_no: Mapped[str] = mapped_column(String)
+    local_start: Mapped[str] = mapped_column(String)  # "2026-11-09 18:00"
+    local_end: Mapped[str] = mapped_column(String)
+    tz_name: Mapped[str] = mapped_column(String)
+    controllable_unit: Mapped[str] = mapped_column(String)  # "HOME_BATTERY" | "WALLBOX" | "HEAT_PUMP"
+    max_kw: Mapped[float] = mapped_column(Float)
+    reason: Mapped[str] = mapped_column(String)
+    grid_operator: Mapped[str] = mapped_column(String)
+
+
+# ---------------------------------------------- Source 6: Public market data
+class MktDayAheadPrice(Base):
+    __tablename__ = "mkt_day_ahead_prices"
+    price_ref: Mapped[str] = mapped_column(String, primary_key=True)
+    bidding_zone: Mapped[str] = mapped_column(String)
+    delivery_hour: Mapped[str] = mapped_column(String)  # local "2026-11-09 18:00"
+    tz_name: Mapped[str] = mapped_column(String)
+    price_eur_mwh: Mapped[float] = mapped_column(Float)
+
+
 SOURCE_TABLES = [
     CrmAccount, CrmSite, CrmRegisteredAsset, CrmCase, CrmCommissioning,
+    CrmSupplyPoint,
     HemsHome, HemsAsset, HemsSchedule, HemsConstraint, HemsCommand, HemsTelemetry, HemsEvent,
     ChgChargepoint, ChgSession, ChgMeterValue,
     KbArticle, AuditConfigLog,
+    SupContract, SupSteeringEvent, MktDayAheadPrice,
 ]
 
 # Telemetry-type tables that change with the selected scenario.
 SCENARIO_TABLES = [
     HemsSchedule, HemsConstraint, HemsCommand, HemsTelemetry, HemsEvent,
-    ChgSession, ChgMeterValue, AuditConfigLog,
+    ChgSession, ChgMeterValue, AuditConfigLog, SupContract, SupSteeringEvent,
 ]

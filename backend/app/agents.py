@@ -1,4 +1,4 @@
-"""Four specialised diagnostic agents.
+"""Five specialised diagnostic agents.
 
 Each agent owns a small set of deterministic tools from `tools.py`, runs them
 against the canonical model, and returns a structured `AgentResult`. Agents
@@ -46,6 +46,7 @@ class AgentResult:
     missing_information: list[str] = field(default_factory=list)
     signals: dict = field(default_factory=dict)
     homeowner_notes: list[str] = field(default_factory=list)
+    unavailable_sources: list[dict] = field(default_factory=list)  # gated sources without active consent
 
     def obs(self, text: str, ids: list[str]) -> None:
         self.observations.append(Observation(text, ids))
@@ -55,7 +56,12 @@ class AgentResult:
 
     def call(self, name: str, fn, *args, **kw):
         self.tools_called.append(name)
-        return fn(*args, **kw)
+        out = fn(*args, **kw)
+        for g in (out.get("unavailable_sources") or []) if isinstance(out, dict) else []:
+            if g["source_system"] not in {u["source_system"] for u in self.unavailable_sources}:
+                self.unavailable_sources.append(g)
+                self.missing_information.append(g["message"])
+        return out
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -270,9 +276,129 @@ class SupportResolutionAgent:
         return r
 
 
-TECH, ENERGY, SECURITY, SUPPORT = (TechnicalDiagnosticsAgent(), EnergyBehaviourAgent(),
-                                   SecurityCorrelationAgent(), SupportResolutionAgent())
-ALL_AGENTS = [TECH, ENERGY, SECURITY, SUPPORT]
+# =================================================================== Agent 5
+def eur(v: float | None) -> str:
+    return f"EUR {v:.2f}" if v is not None else "unknown"
+
+
+class GridTariffAgent:
+    key, name = "grid_tariff", "Grid & Tariff Agent"
+    responsibility = "Supplier contract, grid-steering events, day-ahead prices, EV charging cost vs cheapest hours"
+
+    def run(self, c: Ctx) -> AgentResult:
+        r = AgentResult(self.key, self.name, self.responsibility, used=True)
+        con = r.call("get_tariff_contract", T.get_tariff_contract, c.s, c.installation_id)["contract"]
+        steer = r.call("get_steering_events", T.get_steering_events, c.s, c.installation_id, c.window)
+        prices = r.call("get_price_series", T.get_price_series, c.s, c.window)
+        cmp = r.call("compare_actual_vs_cheapest", T.compare_actual_vs_cheapest, c.s, c.installation_id, c.window)
+        r.investigated = ["Energy supplier contract", f"{len(steer['events'])} grid-steering event(s) in window",
+                          f"{len(prices['prices'])} hourly day-ahead price(s)",
+                          f"{len(cmp['sessions'])} EV charging session(s) costed against the cheapest hours"]
+
+        if con:
+            kind = (f"fixed price {eur(con['fixed_price_eur_kwh'])}/kWh" if con["contract_type"] == "fixed"
+                    else f"dynamic price = day-ahead price + {eur(con['dynamic_markup_eur_kwh'])}/kWh")
+            r.obs(f"Energy contract: {kind}; grid-steering agreement: {'yes' if con['grid_steering_agreement'] else 'no'}.",
+                  [con["evidence_id"]])
+        else:
+            r.missing_information.append("No tariff contract record is available for this installation.")
+
+        for e in steer["events"]:
+            dev = e["device_type"].replace("_", " ")
+            r.obs(f"{hhmm(e['start_time_utc'])}-{hhmm(e['end_time_utc'])} UTC: {e['grid_operator']} requested, via the "
+                  f"supplier, that the {dev} be limited to {e['requested_max_kw']:.1f} kW (reason: {e['reason']}).",
+                  [e["evidence_id"]])
+            resp = e["device_response"]
+            if resp["samples_during"]:
+                r.obs(f"HEMS measured the {dev} at {resp['max_abs_kw_during']:.1f} kW during the steering window "
+                      f"({resp['samples_during']} samples), {abs(resp['kw_before'] or 0):.1f} kW before and "
+                      f"{abs(resp['kw_after'] or 0):.1f} kW after: the limit was followed and normal operation resumed.",
+                      resp["evidence_ids"])
+            else:
+                r.missing_information.append(f"No HEMS measurements of the {dev} during the steering window.")
+        if steer["events"] and con:
+            if con["grid_steering_agreement"]:
+                r.obs(f"The contract's grid-steering agreement compensates the household: {con['steering_compensation']}.",
+                      [con["evidence_id"]])
+            else:
+                r.missing_information.append("The contract has no grid-steering agreement on record, so compensation "
+                                             "cannot be confirmed.")
+
+        if prices["cheapest"] and prices["most_expensive"]:
+            lo, hi = prices["cheapest"], prices["most_expensive"]
+            r.obs(f"Day-ahead prices in the window ranged from {eur(lo['price_eur_kwh'])}/kWh at "
+                  f"{hhmm(lo['start_time_utc'])} to {eur(hi['price_eur_kwh'])}/kWh at {hhmm(hi['start_time_utc'])} UTC.",
+                  [lo["evidence_id"], hi["evidence_id"]])
+
+        for x in cmp["sessions"]:
+            hours = ", ".join(hhmm(h["start_time_utc"]) for h in x["cheapest_hours"])
+            r.obs(f"EV charged {x['energy_kwh']:.1f} kWh from {x['start_time_utc'][5:16].replace('T', ' ')} to "
+                  f"{(x['end_time_utc'] or '')[11:16]} UTC at {x['charging_kw']:.1f} kW and cost {eur(x['actual_cost_eur'])}"
+                  + (f"; smart charging was {'on' if x['smart_charging_on'] else 'off'}" if x["smart_charging_on"] is not None else "")
+                  + ".", x["evidence_ids"][:2] + [h["evidence_id"] for h in x["actual_hours"] if h["evidence_id"]][:3])
+            if x["cheapest_cost_eur"] is not None:
+                r.obs(f"Cheapest hours between plug-in and the {x['departure_utc'][11:16]} UTC departure: {hours} UTC, "
+                      f"costing {eur(x['cheapest_cost_eur'])} (saving {eur(x['saving_eur'])}).",
+                      [h["evidence_id"] for h in x["cheapest_hours"] if h["evidence_id"]][:4])
+        r.missing_information += cmp["missing"]
+
+        last = cmp["sessions"][-1] if cmp["sessions"] else None
+        peak = bool(cmp["contract_type"] == "dynamic" and cmp["total_saving_eur"] is not None and cmp["total_saving_eur"] >= 0.5)
+        r.signals = {
+            "contract": con, "contract_type": con["contract_type"] if con else None,
+            "steering_events": steer["events"],
+            "steering_evidence": [e["evidence_id"] for e in steer["events"]],
+            "device_response_evidence": [i for e in steer["events"] for i in e["device_response"]["evidence_ids"]],
+            "savings": {k: cmp[k] for k in ("total_energy_kwh", "total_actual_eur", "total_cheapest_eur", "total_saving_eur",
+                                             "complete", "contract_type")},
+            "sessions": cmp["sessions"], "peak_charging": peak, "has_charging": bool(cmp["sessions"]),
+            "unavailable": [u["source_system"] for u in r.unavailable_sources],
+        }
+
+        if steer["events"]:
+            e = steer["events"][0]
+            r.status = "finding"
+            r.finding = (f"Grid steering, not a fault: {e['grid_operator']} limited the {e['device_type'].replace('_', ' ')} to "
+                         f"{e['requested_max_kw']:.1f} kW from {hhmm(e['start_time_utc'])} to {hhmm(e['end_time_utc'])} UTC "
+                         f"({e['reason']}). The HEMS followed the request"
+                         + (" and the household is compensated under its grid-steering agreement." if con and con["grid_steering_agreement"] else "."))
+            r.homeowner_notes += [
+                f"Between {hhmm(e['start_time_utc'])} and {hhmm(e['end_time_utc'])} the local electricity grid was congested. "
+                f"Your grid operator asked your energy supplier to pause your {e['device_type'].replace('_', ' ')}, and your "
+                "Hub followed that request.",
+                f"Nothing is broken: your {e['device_type'].replace('_', ' ')} went back to normal at {hhmm(e['end_time_utc'])}.",
+            ]
+            if con and con["grid_steering_agreement"]:
+                r.homeowner_notes.append(f"You're compensated for this under your energy contract ({con['steering_compensation']}).")
+        elif peak and last:
+            r.status = "finding"
+            r.finding = (f"EV charging cost {eur(cmp['total_actual_eur'])}; the cheapest hours before departure would have cost "
+                         f"{eur(cmp['total_cheapest_eur'])} (saving {eur(cmp['total_saving_eur'])}). Smart charging was off, "
+                         "so charging started immediately at the evening price peak.")
+            hours = ", ".join(hhmm(h["start_time_utc"]) for h in last["cheapest_hours"])
+            r.homeowner_notes += [
+                f"You paid about {eur(last['actual_cost_eur'])} to charge your car from {hhmm(last['start_time_utc'])} to "
+                f"{(last['end_time_utc'] or '')[11:16]}, the most expensive hours of the evening.",
+                f"Charging in the cheapest hours ({hours}) would have cost about {eur(last['cheapest_cost_eur'])} and the car "
+                f"would still have been ready by {last['departure_utc'][11:16]}.",
+            ]
+            if last["smart_charging_on"] is False:
+                r.homeowner_notes.append("Smart charging was switched off, so the car started charging as soon as it was plugged in.")
+        elif r.unavailable_sources and not (con or steer["events"]):
+            r.status = "inconclusive"
+            r.finding = "Supplier data is unavailable (no active consent), so tariff and grid-steering questions cannot be answered."
+        else:
+            r.status = "no_issue"
+            r.finding = ("No grid-steering event in the window. "
+                         + (f"Charging cost {eur(cmp['total_actual_eur'])}, within {eur(cmp['total_saving_eur'])} of the cheapest plan."
+                            if cmp["sessions"] and cmp["total_saving_eur"] is not None else
+                            "No EV charging session in the window." if not cmp["sessions"] else "Charging cost could not be fully established."))
+        return r
+
+
+TECH, ENERGY, SECURITY, SUPPORT, GRID = (TechnicalDiagnosticsAgent(), EnergyBehaviourAgent(),
+                                         SecurityCorrelationAgent(), SupportResolutionAgent(), GridTariffAgent())
+ALL_AGENTS = [TECH, ENERGY, SECURITY, SUPPORT, GRID]
 
 
 def not_used(agent, reason: str) -> AgentResult:

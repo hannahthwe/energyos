@@ -3,13 +3,15 @@ import { Link, useParams } from "react-router-dom";
 import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import {
   AlertTriangle, ArrowLeft, ArrowRight, Bot, CheckCircle2, CircleDashed, Clock, Cpu, Database, FileText, GitMerge,
-  Lightbulb, ListChecks, MessageSquare, Plug, Search, Send, ShieldAlert, Sparkles, StickyNote, Wrench, XCircle, Zap,
+  Lightbulb, ListChecks, Lock, MessageSquare, Plug, Search, Send, ShieldAlert, Sparkles, StickyNote, TrendingDown, Wrench,
+  XCircle, Zap,
 } from "lucide-react";
 import {
   api, type AgentResult, type AskResult, type CaseDetail, type CaseStatus, type Cited, type DataModel, type Escalation,
 } from "@/lib/api";
 import { Badge, Button, Card, CardBody, CardHeader, Spinner, statusTone, visLabel, visTone } from "@/components/ui";
 import { DeviceTable, Field } from "@/pages/Queue";
+import { useDemoMode } from "@/components/Layout";
 import { cn, fmtTime } from "@/lib/utils";
 
 const AGENT_ICON: Record<string, JSX.Element> = {
@@ -17,12 +19,15 @@ const AGENT_ICON: Record<string, JSX.Element> = {
   energy_behaviour: <Zap className="h-4 w-4" />,
   security_correlation: <ShieldAlert className="h-4 w-4" />,
   support_resolution: <FileText className="h-4 w-4" />,
+  grid_tariff: <TrendingDown className="h-4 w-4" />,
 };
 const SOURCE_TONE: Record<string, "navy" | "teal" | "violet" | "amber" | "slate"> = {
   hems_backend: "navy", charger_integration: "violet", config_audit: "amber", crm: "teal", knowledge_base: "slate",
+  energy_supplier: "teal", market_data: "slate",
 };
 const SOURCE_SHORT: Record<string, string> = {
   hems_backend: "HEMS", charger_integration: "Charger API", config_audit: "Audit", crm: "CRM", knowledge_base: "KB",
+  energy_supplier: "Supplier", market_data: "Market",
 };
 const QUESTIONS = [
   "Why did the discharge fail?",
@@ -31,6 +36,8 @@ const QUESTIONS = [
   "Was there a configuration change?",
   "What evidence is missing?",
   "What should support do next?",
+  "Was there grid steering?",
+  "How much could the customer save?",
 ];
 
 export default function Investigation() {
@@ -38,11 +45,13 @@ export default function Investigation() {
   const [d, setD] = useState<CaseDetail | null>(null);
   const [dm, setDm] = useState<DataModel | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const demoMode = useDemoMode();
 
   const load = useCallback(() => {
     api.case(caseId).then(setD).catch((e) => setErr(String(e)));
-    api.dataModel().then(setDm);
-  }, [caseId]);
+    if (!demoMode) api.dataModel().then(setDm).catch(() => setDm(null));
+    else setDm(null);
+  }, [caseId, demoMode]);
 
   useEffect(() => {
     load();
@@ -63,20 +72,23 @@ export default function Investigation() {
         <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_400px]">
           <div className="min-w-0 space-y-5">
             <CustomerStrip d={d} />
+            <DataConsents d={d} />
             <Findings d={d} />
-            <div>
-              <SectionTitle icon={<Bot className="h-4 w-4" />} title="Specialist agents" hint="Live module results from the orchestrated run" />
-              <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-4">
-                {diag.agents.map((a) => (
-                  <AgentCard key={a.key} a={a} />
-                ))}
+            {!demoMode && (
+              <div>
+                <SectionTitle icon={<Bot className="h-4 w-4" />} title="Specialist agents" hint="Live module results from the orchestrated run" />
+                <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
+                  {diag.agents.map((a) => (
+                    <AgentCard key={a.key} a={a} />
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
             <div className="grid gap-5 2xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
               <Timeline d={d} />
               <PowerChart d={d} />
             </div>
-            {dm && <DataModelPanel dm={dm} />}
+            {dm && !demoMode && <DataModelPanel dm={dm} />}
             <EvidenceTable d={d} />
           </div>
           <div className="space-y-5 xl:sticky xl:top-20">
@@ -173,8 +185,36 @@ function CustomerStrip({ d }: { d: CaseDetail }) {
   );
 }
 
+function DataConsents({ d }: { d: CaseDetail }) {
+  const rows = d.data_consents || [];
+  if (!rows.length) return null;
+  return (
+    <Card>
+      <CardHeader title="Homeowner data consents" icon={<Lock className="h-4 w-4 text-teal" />} right={<span className="text-[11px] text-slate-400">sources without consent are reported as unavailable</span>} />
+      <div className="flex flex-wrap gap-2 px-4 py-3">
+        {rows.map((c) => (
+          <span key={c.source_system} title={`${c.source_label} · ${c.legal_basis}${c.expires_at ? ` · expires ${c.expires_at.slice(0, 10)}` : ""}`}>
+            <Badge tone={c.active ? "teal" : "red"}>
+              {c.active ? <CheckCircle2 className="h-3 w-3" /> : <XCircle className="h-3 w-3" />}
+              {c.label}: {c.active ? "consented" : "not consented"}
+              {c.legal_basis.startsWith("EU Data Act") ? " · Data Act" : c.legal_basis === "contract" ? " · contract" : ""}
+            </Badge>
+          </span>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
 function EvChips({ ids, d }: { ids: string[]; d: CaseDetail }) {
+  const demoMode = useDemoMode();
   const by = Object.fromEntries((d.diagnosis?.evidence || []).map((e) => [e.evidence_id, e]));
+  if (demoMode)
+    return ids.length ? (
+      <span className="ml-1 rounded border border-slate-200 px-1.5 py-px align-middle text-[10px] text-slate-500" title={ids.map((i) => by[i]?.summary || "").join("\n")}>
+        Evidence ({ids.length})
+      </span>
+    ) : null;
   return (
     <span className="ml-1 inline-flex flex-wrap gap-1 align-middle">
       {ids.map((i) => {
@@ -341,6 +381,7 @@ function AgentCard({ a }: { a: AgentResult }) {
 
 function Timeline({ d }: { d: CaseDetail }) {
   const items = d.diagnosis!.timeline;
+  const demoMode = useDemoMode();
   return (
     <Card>
       <CardHeader title="Unified technical timeline" icon={<Clock className="h-4 w-4 text-teal" />} right={<span className="text-[11px] text-slate-400">UTC · Europe/London = UTC in Nov</span>} />
@@ -352,16 +393,18 @@ function Timeline({ d }: { d: CaseDetail }) {
             <span
               className={cn(
                 "relative z-10 mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ring-4 ring-white",
-                t.kind === "session" || t.kind === "config_change" ? "bg-red-500" : t.kind === "event" ? "bg-amber-500" : "bg-teal",
+                t.kind === "session" || t.kind === "config_change" ? "bg-red-500" : t.kind === "event" || t.kind === "steering" ? "bg-amber-500" : "bg-teal",
               )}
             />
             <div className="min-w-0 flex-1">
               <div className="text-sm leading-snug">{t.label}</div>
               <div className="mt-0.5 flex flex-wrap items-center gap-1">
                 <Badge tone={SOURCE_TONE[t.source_system] || "slate"}>{SOURCE_SHORT[t.source_system] || t.source_system}</Badge>
-                <a href={`#ev-${t.evidence_id}`} className="font-mono text-[10px] text-slate-400 hover:text-navy">
-                  {t.evidence_id}
-                </a>
+                {!demoMode && (
+                  <a href={`#ev-${t.evidence_id}`} className="font-mono text-[10px] text-slate-400 hover:text-navy">
+                    {t.evidence_id}
+                  </a>
+                )}
                 {t.visibility_level !== "homeowner_safe" && <Badge tone={visTone[t.visibility_level]}>{visLabel[t.visibility_level]}</Badge>}
               </div>
             </div>
@@ -382,7 +425,7 @@ function PowerChart({ d }: { d: CaseDetail }) {
           <LineChart data={data} margin={{ left: -18, right: 8, top: 8 }}>
             <CartesianGrid stroke="#eef2f7" />
             <XAxis dataKey="time" tick={{ fontSize: 11 }} />
-            <YAxis domain={[-3.5, 0.5]} tick={{ fontSize: 11 }} />
+            <YAxis domain={[(min: number) => Math.min(-0.5, Math.floor(min - 0.5)), (max: number) => Math.max(0.5, Math.ceil(max + 0.5))]} tick={{ fontSize: 11 }} />
             <Tooltip />
             <Legend wrapperStyle={{ fontSize: 12 }} />
             <Line type="stepAfter" dataKey="expected_kw" name="Scheduled (HEMS)" stroke="#0B1F3A" strokeDasharray="5 4" dot={false} />
@@ -483,6 +526,7 @@ function DataModelPanel({ dm }: { dm: DataModel }) {
 
 function EvidenceTable({ d }: { d: CaseDetail }) {
   const shared = new Set(d.consent?.evidence_scope || []);
+  const demoMode = useDemoMode();
   return (
     <Card>
       <CardHeader
@@ -494,9 +538,9 @@ function EvidenceTable({ d }: { d: CaseDetail }) {
         <table className="w-full text-xs">
           <thead className="bg-slate-50 text-left text-[10px] uppercase tracking-wide text-slate-500">
             <tr>
-              <th className="px-3 py-2">Evidence ID</th>
+              {!demoMode && <th className="px-3 py-2">Evidence ID</th>}
               <th className="px-3 py-2">Source</th>
-              <th className="px-3 py-2">Record</th>
+              {!demoMode && <th className="px-3 py-2">Record</th>}
               <th className="px-3 py-2">Time</th>
               <th className="px-3 py-2">Summary</th>
               <th className="px-3 py-2">Visibility</th>
@@ -505,9 +549,9 @@ function EvidenceTable({ d }: { d: CaseDetail }) {
           <tbody className="divide-y divide-slate-100">
             {d.diagnosis!.evidence.map((e) => (
               <tr key={e.evidence_id} id={`ev-${e.evidence_id}`} className="target:bg-teal-50">
-                <td className="px-3 py-1.5 font-mono">{e.evidence_id}</td>
+                {!demoMode && <td className="px-3 py-1.5 font-mono">{e.evidence_id}</td>}
                 <td className="px-3 py-1.5">{e.source_label}</td>
-                <td className="px-3 py-1.5 font-mono text-slate-500">{e.source_record_id}</td>
+                {!demoMode && <td className="px-3 py-1.5 font-mono text-slate-500">{e.source_record_id}</td>}
                 <td className="px-3 py-1.5 whitespace-nowrap text-slate-500">{e.timestamp_utc ? e.timestamp_utc.slice(11, 16) : "—"}</td>
                 <td className="px-3 py-1.5">{e.summary}</td>
                 <td className="px-3 py-1.5">
@@ -530,6 +574,7 @@ function Copilot({ d, onAsked }: { d: CaseDetail; onAsked: () => void }) {
   const [busy, setBusy] = useState(false);
   const [extra, setExtra] = useState<Record<string, AskResult>>({});
   const end = useRef<HTMLDivElement>(null);
+  const demoMode = useDemoMode();
   const thread = d.messages.filter(
     (m) => (m.message_type === "question" && m.sender_role === "support") || m.message_type === "copilot_answer" || (m.sender_role === "homeowner" && m.message_type === "question"),
   );
@@ -576,7 +621,7 @@ function Copilot({ d, onAsked }: { d: CaseDetail; onAsked: () => void }) {
                 <Sparkles className="h-3 w-3" /> Copilot
               </div>
               {m.message}
-              {meta && meta.agents_used.length > 0 && (
+              {meta && !demoMode && meta.agents_used.length > 0 && (
                 <div className="mt-2 flex flex-wrap gap-1">
                   {meta.agents_used.map((a) => (
                     <Badge key={a} tone="navy">{a.replace(" Agent", "")}</Badge>

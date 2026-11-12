@@ -3,17 +3,18 @@
 // what the homeowner may see.
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { Activity, BatteryCharging, Home, LifeBuoy, Send, ShieldCheck, Zap } from "lucide-react";
-import { api, type DemoState, type Evidence } from "@/lib/api";
+import { Activity, BatteryCharging, ChevronRight, Home, LifeBuoy, Lock, PiggyBank, Send, ShieldCheck, X, Zap } from "lucide-react";
+import { api, type DataConsent, type DemoState, type Evidence } from "@/lib/api";
+import { useDemoMode } from "@/components/Layout";
 import { Button, Spinner, SyntheticLabel } from "@/components/ui";
 import { cn } from "@/lib/utils";
 
 interface Overview {
   customer_first_name: string;
-  ev: { soc_pct: number; reserve_pct: number; plugged_in: boolean; usable_for_home_kwh: number };
+  ev: { soc_pct: number | null; reserve_pct: number | null; plugged_in: boolean; usable_for_home_kwh: number };
   v2h: { available: boolean; reason: string; next_window: string; last_night_delivered: boolean };
   charger: { status: string; model: string };
-  home: { load_kw: number; solar_kw: number };
+  home: { load_kw: number | null; solar_kw: number };
 }
 
 interface HomeAnswer {
@@ -35,6 +36,18 @@ interface Preview {
   also_available_to_support: string;
 }
 
+interface Savings {
+  window: string;
+  contract_type: "fixed" | "dynamic" | null;
+  actual_eur: number | null;
+  cheapest_eur: number | null;
+  saving_eur: number | null;
+  energy_kwh: number;
+  sessions: { date: string; start: string; end: string; actual_eur: number | null; cheapest_eur: number | null; cheapest_hours: string[]; departure: string | null }[];
+  tip: string;
+  unavailable_sources: string[];
+}
+
 type Turn = { kind: "q"; text: string } | { kind: "a"; data: HomeAnswer } | { kind: "err"; text: string };
 
 async function home<T>(path: string, body?: unknown): Promise<T> {
@@ -47,7 +60,14 @@ async function home<T>(path: string, body?: unknown): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-const SUGGESTIONS = ["Why didn't my EV discharge last night?", "Is my charger working?", "What should I do next?"];
+const SUGGESTIONS = [
+  "Why didn't my EV discharge last night?",
+  "Why did my home battery pause last night?",
+  "Why was my charging so expensive last night?",
+  "What should I do next?",
+];
+
+const eur = (v: number | null | undefined) => (v == null ? "–" : `€${v.toFixed(2)}`);
 
 export default function HomeApp() {
   const [demo, setDemo] = useState<DemoState | null>(null);
@@ -58,11 +78,23 @@ export default function HomeApp() {
   const [preview, setPreview] = useState<Preview | null>(null);
   const [approved, setApproved] = useState(false);
   const [created, setCreated] = useState<Record<string, string>>({});
+  const [savings, setSavings] = useState<Savings | null>(null);
+  const [privacy, setPrivacy] = useState<DataConsent[] | null>(null);
+  const demoMode = useDemoMode();
   const end = useRef<HTMLDivElement>(null);
 
   const load = () => {
     api.demo().then(setDemo).catch(() => setDemo(null));
     home<Overview>("/api/home/overview").then(setOv).catch(() => setOv(null));
+    home<Savings>("/api/home/savings?window=7d").then(setSavings).catch(() => setSavings(null));
+  };
+
+  const openPrivacy = async () => setPrivacy(await home<DataConsent[]>("/api/home/consents"));
+  const toggle = async (c: DataConsent) => {
+    if (c.active && c.consent_id) await home(`/api/home/consents/${c.consent_id}/revoke`, {});
+    else await home("/api/home/consents", { source_system: c.source_system });
+    await openPrivacy();
+    load();
   };
   useEffect(load, []);
   useEffect(() => {
@@ -125,17 +157,22 @@ export default function HomeApp() {
             <div className="text-sm font-semibold">HelioHEMS Home</div>
             <div className="text-[11px] text-slate-300">{ov ? `Hi ${ov.customer_first_name}` : "Connecting…"}</div>
           </div>
-          <div className="ml-auto"><SyntheticLabel /></div>
+          <button onClick={openPrivacy} className="ml-auto rounded-md p-1 text-slate-300 hover:bg-white/10 hover:text-white" aria-label="Data & privacy" title="Data & privacy">
+            <Lock className="h-4 w-4" />
+          </button>
+          <SyntheticLabel />
         </header>
 
         <div className="flex-1 space-y-3 overflow-y-auto p-3">
           {ov && (
             <div className="grid grid-cols-3 gap-2 text-center text-[11px]">
-              <Tile icon={<BatteryCharging className="h-4 w-4" />} label="EV battery" value={`${Math.round(ov.ev.soc_pct)}%`} sub={`reserve ${Math.round(ov.ev.reserve_pct)}%`} />
-              <Tile icon={<Zap className="h-4 w-4" />} label="Car → home" value={ov.v2h.available ? "Ready" : "Paused"} sub={ov.v2h.next_window} warn={!ov.v2h.available} />
-              <Tile icon={<Home className="h-4 w-4" />} label="Home use" value={`${ov.home.load_kw.toFixed(1)} kW`} sub={`charger ${ov.charger.status}`} />
+              <Tile icon={<BatteryCharging className="h-4 w-4" />} label="EV battery" value={ov.ev.soc_pct == null ? "–" : `${Math.round(ov.ev.soc_pct)}%`} sub={ov.ev.reserve_pct == null ? "reserve –" : `reserve ${Math.round(ov.ev.reserve_pct)}%`} />
+              <Tile icon={<Zap className="h-4 w-4" />} label="Car → home" value={ov.v2h.available ? "Ready" : "Paused"} sub={ov.v2h.next_window || "no window"} warn={!ov.v2h.available} />
+              <Tile icon={<Home className="h-4 w-4" />} label="Home use" value={ov.home.load_kw == null ? "–" : `${ov.home.load_kw.toFixed(1)} kW`} sub={`charger ${ov.charger.status}`} />
             </div>
           )}
+
+          {savings && <SavingsCard s={savings} onPrivacy={openPrivacy} />}
 
           <div className="rounded-xl bg-white p-3 text-xs text-slate-600 shadow-sm">
             Ask the assistant about your car, charger or home energy. Answers come from your home's own records.
@@ -193,7 +230,7 @@ export default function HomeApp() {
                 {preview.evidence_to_share.map((e) => (
                   <li key={e.evidence_id} className="rounded bg-slate-50 p-2">
                     <div>{e.summary}</div>
-                    <div className="text-[10px] text-slate-400">{e.source_label} · {e.evidence_id}</div>
+                    <div className="text-[10px] text-slate-400">{e.source_label}{demoMode ? "" : ` · ${e.evidence_id}`}</div>
                   </li>
                 ))}
               </ul>
@@ -209,6 +246,90 @@ export default function HomeApp() {
             </div>
           </div>
         )}
+
+        {privacy && <PrivacyScreen rows={privacy} onToggle={toggle} onClose={() => setPrivacy(null)} />}
+      </div>
+    </div>
+  );
+}
+
+function SavingsCard({ s, onPrivacy }: { s: Savings; onPrivacy: () => void }) {
+  const last = s.sessions[s.sessions.length - 1];
+  return (
+    <div className="rounded-xl bg-white p-3 text-xs text-slate-700 shadow-sm">
+      <div className="mb-1 flex items-center gap-2 text-sm font-semibold text-navy">
+        <PiggyBank className="h-4 w-4 text-teal" /> Savings · last 7 days
+        {s.contract_type && <span className="ml-auto rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500">{s.contract_type} price</span>}
+      </div>
+      {s.contract_type && s.sessions.length > 0 ? (
+        <>
+          <div className="grid grid-cols-3 gap-2 text-center">
+            <Stat label="You paid" value={eur(s.actual_eur)} />
+            <Stat label="Cheapest possible" value={eur(s.cheapest_eur)} />
+            <Stat label="Could save" value={eur(s.saving_eur)} accent />
+          </div>
+          {last && last.cheapest_hours.length > 0 && (s.saving_eur ?? 0) > 0 && (
+            <p className="mt-2 text-[11px] text-slate-500">
+              Last charge {last.start}–{last.end}: {eur(last.actual_eur)}. Cheaper hours before your {last.departure} departure: {last.cheapest_hours.join(", ")}.
+            </p>
+          )}
+        </>
+      ) : null}
+      <p className="mt-2">{s.tip}</p>
+      {s.unavailable_sources.length > 0 && (
+        <button onClick={onPrivacy} className="mt-1 text-[11px] font-medium text-teal-700 underline">Open Data &amp; privacy</button>
+      )}
+    </div>
+  );
+}
+
+function Stat({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
+  return (
+    <div className={cn("rounded-lg p-2", accent ? "bg-teal/10" : "bg-slate-50")}>
+      <div className="text-[10px] text-slate-500">{label}</div>
+      <div className={cn("text-sm font-semibold", accent ? "text-teal-700" : "text-navy")}>{value}</div>
+    </div>
+  );
+}
+
+function PrivacyScreen({ rows, onToggle, onClose }: { rows: DataConsent[]; onToggle: (c: DataConsent) => void; onClose: () => void }) {
+  return (
+    <div className="absolute inset-0 z-20 flex flex-col bg-white">
+      <div className="flex items-center gap-2 border-b p-3 text-sm font-semibold text-navy">
+        <Lock className="h-4 w-4 text-teal" /> Data &amp; privacy
+        <button onClick={onClose} className="ml-auto rounded p-1 text-slate-400 hover:bg-slate-100" aria-label="Close"><X className="h-4 w-4" /></button>
+      </div>
+      <div className="flex-1 space-y-2 overflow-y-auto p-3 text-xs text-slate-700">
+        <p className="text-slate-500">Choose which data the assistant may use. If you turn a source off, answers will say that data is unavailable instead of using it.</p>
+        {rows.map((c) => (
+          <div key={c.source_system} className="flex items-start gap-3 rounded-lg border border-slate-200 p-2.5">
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-medium text-navy">{c.label}</div>
+              <div className="text-[11px] text-slate-500">{c.scope}</div>
+              <div className="mt-0.5 text-[10px] text-slate-400">
+                {c.legal_basis.startsWith("EU Data Act") ? "EU Data Act: you chose HelioHEMS to receive this data" : c.legal_basis === "contract" ? "Needed for your HelioHEMS service contract" : c.legal_basis}
+                {c.active && c.expires_at ? ` · renews by ${c.expires_at.slice(0, 10)}` : ""}
+                {!c.active && c.revoked_at ? ` · turned off ${c.revoked_at.slice(0, 10)}` : ""}
+              </div>
+            </div>
+            {c.toggleable ? (
+              <button
+                role="switch"
+                aria-checked={c.active}
+                aria-label={`${c.label} sharing`}
+                onClick={() => onToggle(c)}
+                className={cn("relative mt-1 h-5 w-9 shrink-0 rounded-full transition", c.active ? "bg-teal" : "bg-slate-300")}
+              >
+                <span className={cn("absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition", c.active ? "left-[18px]" : "left-0.5")} />
+              </button>
+            ) : (
+              <span className="mt-1 text-[10px] text-slate-400">always on</span>
+            )}
+          </div>
+        ))}
+      </div>
+      <div className="border-t p-3">
+        <Button variant="secondary" className="w-full" onClick={onClose}>Done <ChevronRight className="h-4 w-4" /></Button>
       </div>
     </div>
   );

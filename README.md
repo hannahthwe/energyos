@@ -5,10 +5,10 @@ Pitch MVP for the fictional HEMS manufacturer **HelioHEMS**. **All data is synth
 
 | Part | What it is | Where |
 |---|---|---|
-| Homeowner app | Native **iOS app** (SwiftUI): home energy overview, AI assistant, consent-based support handoff | `ios/` |
+| Homeowner app | Native **iOS app** (SwiftUI): home energy overview, Savings card, AI assistant, Data & privacy, consent-based support handoff | `ios/` |
 | Homeowner app (web) | The same homeowner app in the browser, for demos without Xcode or on any phone | `web/` → `/app` |
 | Support dashboard | Web console for HelioHEMS support staff: case queue, AI investigation, copilot, workflow | `web/` → `/support` |
-| Backend | FastAPI + SQLite: unified data model, 4 specialist agents, orchestrator, Claude integration | `backend/` |
+| Backend | FastAPI + SQLite: unified data model, 5 specialist agents (18 deterministic tools), orchestrator, Claude integration, Data Act consent manager | `backend/` |
 
 How the apps connect, the full API and the backend internals: **[docs/TECHNICAL.md](docs/TECHNICAL.md)**.
 
@@ -36,6 +36,7 @@ The first run sets up Python and the web packages (a few minutes). After that it
 
 - **Stop:** press `Ctrl+C` in that terminal.
 - **Keep earlier support cases** instead of starting fresh: `./start-demo.sh --keep`
+- **Presentation mode** (hides agent/tool panels, raw evidence IDs, the data-model panel, the model name and `/docs`): `CONNECTEDCARE_DEMO_MODE=1 ./start-demo.sh`
 - **Use Claude** instead of offline rules: run `export ANTHROPIC_API_KEY=sk-ant-...` first, then `./start-demo.sh`. The dashboard header shows which mode is on.
 - **Phone shows "can't connect":** check that the phone and Mac are on the same Wi-Fi, the script is still running, and the macOS firewall isn't blocking Python (System Settings → Network → Firewall).
 - **"Address already in use":** something is already on port 8000. Stop it, or run `lsof -ti :8000 | xargs kill`.
@@ -47,9 +48,11 @@ The sections below describe each part on its own, for development.
 ```
 iOS app ──┐                          ┌─ Technical Diagnostics Agent ─┐
           ├─► FastAPI ─► Orchestrator ├─ Energy Behaviour Agent ──────┤─► deterministic tools ─► canonical model ◄─ adapters ◄─ CRM
-Web  ─────┘   (role       (Claude or  ├─ Security Correlation Agent ──┤                                                ◄─ HEMS backend
-              enforced)    offline)   └─ Support Resolution Agent ────┘                                                ◄─ Charger API
-                                                                                                                        ◄─ KB + audit log
+Web  ─────┘   (role       (Claude or  ├─ Security Correlation Agent ──┤   (consent-filtered)                           ◄─ HEMS backend
+              enforced)    offline)   ├─ Support Resolution Agent ────┤                                                ◄─ Charger API
+                                      └─ Grid & Tariff Agent ─────────┘                                                ◄─ KB + audit log
+                                                                                                                        ◄─ Energy supplier
+                                                                                                                        ◄─ Market prices
 ```
 
 ## 1. Run the backend (needed by both apps)
@@ -105,12 +108,23 @@ With a free Apple ID the app stays installed for 7 days; run it from Xcode again
 2. **Assistant:** "Why didn't my EV discharge last night?" The answer explains that the car was below the 40% reserve and that nothing is broken. The answer comes from the home's records. No support needed.
 3. Switch to scenario **B** and ask again. The charger rejected the request, and the app says plainly that the reason isn't visible. Tap **Request support**. The consent screen lists exactly which records will be shared. Approve it.
 4. **Web `/support`:** the new case appears in the queue with its CRM profile, installation, devices and history. Open the **AI investigation**.
-5. Walk through the **four agent cards**: what each one checked, its finding, its evidence and what it couldn't see. Note that Security was *not used*, and why.
+5. Walk through the **agent cards**: what each one checked, its finding, its evidence and what it couldn't see. Note that Security was *not used*, and why.
 6. Show the **unified timeline** (HEMS + charger API on one UTC clock) and the expected-vs-measured power chart.
 7. Show the **Data sources → unified data model** panel: CRM customer → commissioning scan → HEMS asset → charger ID. A neighbour's charger with a near-identical nickname was **rejected** as a match.
 8. Ask the **copilot**: "Which system rejected the command?", then "Was there a configuration change?" (this runs the Security agent live).
 9. Click **Prepare escalation**: a Voltara package with no restricted records. Then **Draft response** and set the status.
 10. Optional: scenario **C**. An unregistered API client raised the reserve 13 minutes before the discharge window. The AI flags it for human review and does **not** call it an attack.
+11. Optional: scenario **D**. Ask "Why did my home battery pause last night?" The battery was paused 18:00–19:00 because the grid operator asked the supplier to limit it (grid congestion). The app says it's grid steering, not a fault, and that the household is compensated. In `/support` the steering start and end are on the timeline.
+12. Optional: scenario **E**. The **Savings** card shows €13.65 paid this week vs €7.53 possible. Ask "Why was my charging so expensive last night?": €8.15 paid at the 18:00 peak, €4.54 in the cheapest hours (02:00, 03:00, 04:00), car still ready by 07:00.
+13. **Data & privacy** (lock icon): turn off *Energy supplier* and ask again. The answer now says the supplier data isn't available. Turn it back on. The support case page shows which sources are consented.
+
+| Scenario | What happened | Likely cause |
+|---|---|---|
+| A | EV at 35%, reserve 40% | `soc_reserve` (no fault) |
+| B | Charger rejected the V2H session | `charger_rejection` (escalate to Voltara) |
+| C | Reserve raised by an unregistered API client | `config_change_raised_reserve` (human review) |
+| D | Home battery paused 18:00–19:00 by grid steering | `grid_steering` (no fault, compensated) |
+| E | Dynamic tariff, EV charged at the evening peak | `peak_charging` (€ paid vs € possible) |
 
 ## Tests
 
@@ -119,16 +133,18 @@ cd connectedcare/backend && .venv/bin/python -m pytest -q
 cd connectedcare/web && npm run typecheck
 ```
 
-19 backend tests cover: canonical mapping, units and signs; device identity via commissioning (rejecting the decoy and serial mismatches); diagnoses for all 3 scenarios; evidence references; disclosure of missing third-party data; homeowner visibility (in the orchestrator and the API); consent-gated case creation; persistence across sessions and scenario switches; and the Claude tool loop with a scripted client (evidence validation, leak rejection, fallback).
+36 backend tests cover: canonical mapping, units and signs (incl. supplier ct/kWh, market EUR/MWh, local time → UTC); device and supply-point identity via verified CRM records (rejecting the decoy and serial mismatches); diagnoses for all 5 scenarios, offline and with a scripted Claude; the savings calculation; consent revoke → "unavailable" answers; that no tool writes to any table; demo mode; evidence references; disclosure of missing third-party data; homeowner visibility (in the orchestrator and the API); consent-gated case creation; persistence across sessions and scenario switches; and the Claude tool loop with a scripted client (evidence validation, leak rejection, fallback).
 
 ## Key design points
 
-- **Unified data model** (`backend/app/canonical.py`): Customer, Installation, Device, SourceDeviceMapping, EnergyMeasurement, EnergySchedule, OperatingConstraint, DeviceCommand, ChargingSession, DiagnosticEvent, EvidenceRecord, SupportCase, SupportMessage, ConfigurationChange, ConsentRecord. Every record keeps `source_system` and `source_record_id`.
+- **Unified data model** (`backend/app/canonical.py`): Customer, Installation, Device, SourceDeviceMapping, EnergyMeasurement, EnergySchedule, OperatingConstraint, DeviceCommand, ChargingSession, DiagnosticEvent, TariffContract, PriceSeries, GridSteeringEvent, EvidenceRecord, SupportCase, SupportMessage, ConfigurationChange, ConsentRecord. Every record keeps `source_system` and `source_record_id`.
 - **Source-native schemas** (`backend/app/sources.py`): the CRM uses `crm_customer_ref`/`site_ref`; the HEMS uses `home_uid`/`asset_key`/`requested_watts` and epoch times; the charger API uses `chargepoint_ref`/`session_state`/`power_kw` with + = export. Adapters (`adapters.py`) normalise units (kW), signs (+ = draws, − = supplies the home) and time (UTC).
 - **Identity** comes only from the installer's commissioning scan, with serial numbers cross-checked across all sources. Names are never used.
 - **Visibility** (`visibility.py`) is enforced on the server. Evidence is `homeowner_safe`, `support_internal` or `restricted` (security audit). The homeowner API only ever returns homeowner-safe data, and Claude in homeowner mode only receives filtered agent output.
+- **Consent** (`consents.py`): each source has a data-access consent (EU Data Act user-designated recipient, or contract). Without active consent, tools return no rows and answers say the data is unavailable.
+- **Savings are calculated, not generated:** `compare_actual_vs_cheapest` works out € paid vs the cheapest hours before departure from meter values, the contract and day-ahead prices. Claude only explains the result.
 - **Charger limits:** HelioHEMS only sees what Voltara's authorised integration exposes. The system says so instead of guessing.
 
 ## Not built (by design)
 
-Multi-tenant OEMs, SSO (a demo role header is used instead), billing, real device control or cloud connections, B2C app, analytics. iOS signing needs your own Apple ID.
+Multi-tenant OEMs, SSO (a demo role header is used instead), billing, real device control or cloud connections (nothing sends commands to devices, including smart-charging changes), B2C app, analytics. iOS signing needs your own Apple ID.

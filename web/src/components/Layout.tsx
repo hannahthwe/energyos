@@ -4,6 +4,17 @@ import { Activity, Bot, Cpu } from "lucide-react";
 import { api, type DemoState } from "@/lib/api";
 import { Badge, SyntheticLabel } from "@/components/ui";
 
+let demoOnce: Promise<DemoState> | null = null;
+
+/** True when the backend runs with CONNECTEDCARE_DEMO_MODE=1 (presentation mode hides internals). */
+export function useDemoMode(): boolean {
+  const [on, setOn] = useState(false);
+  useEffect(() => {
+    (demoOnce ||= api.demo()).then((d) => setOn(!!d.demo_mode)).catch(() => setOn(false));
+  }, []);
+  return on;
+}
+
 export function useDemo() {
   const [demo, setDemo] = useState<DemoState | null>(null);
   const reload = () => api.demo().then(setDemo).catch(() => setDemo(null));
@@ -44,7 +55,7 @@ export default function Layout() {
             {demo && (
               <Badge tone={demo.ai_mode === "claude" ? "teal" : "slate"} className="bg-white/10 text-white ring-white/20">
                 {demo.ai_mode === "claude" ? <Bot className="h-3 w-3" /> : <Cpu className="h-3 w-3" />}
-                {demo.ai_mode === "claude" ? `Claude · ${demo.model}` : "Offline deterministic mode"}
+                {demo.ai_mode === "claude" ? (demo.model ? `Claude · ${demo.model}` : "Claude") : demo.demo_mode ? "AI assistant" : "Offline deterministic mode"}
               </Badge>
             )}
             {demo && (

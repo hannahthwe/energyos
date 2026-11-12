@@ -113,8 +113,23 @@ export interface CaseDetail {
   messages: Message[];
   evidence: { evidence_id: string; summary: string; visibility_level: Visibility; shared_by_homeowner: boolean }[];
   consent: { consent_id: string; approved_at: string; evidence_scope: string[] } | null;
+  data_consents: DataConsent[];
   diagnosis: Diagnosis | null;
   escalation: Escalation | null;
+}
+
+export interface DataConsent {
+  source_system: string;
+  label: string;
+  source_label: string;
+  legal_basis: string;
+  active: boolean;
+  toggleable: boolean;
+  expires_at: string | null;
+  revoked_at: string | null;
+  consent_id?: string | null;
+  scope?: string;
+  approved_at?: string | null;
 }
 
 export interface Escalation {
@@ -146,6 +161,7 @@ export interface DemoState {
   scenarios: { code: string; name: string; summary: string }[];
   ai_mode: "claude" | "offline";
   model: string | null;
+  demo_mode?: boolean;
 }
 
 export interface AskResult {

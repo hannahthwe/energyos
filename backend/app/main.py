@@ -16,11 +16,16 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import cases, datamodel, db, llm, orchestrator, state
+from . import cases, consents, datamodel, db, llm, orchestrator, state
 from .seed import SCENARIOS
 
-app = FastAPI(title="ConnectedCare AI", version="0.1.0",
-              description="AI technical support copilot for connected home energy. SYNTHETIC DEMO DATA.")
+# Presentation mode: hides internals (agent/tool panel, raw evidence IDs, data-model view, model name, API docs).
+DEMO_MODE = os.environ.get("CONNECTEDCARE_DEMO_MODE") == "1"
+
+app = FastAPI(title="ConnectedCare AI", version="0.2.0",
+              description="AI technical support copilot for connected home energy. SYNTHETIC DEMO DATA.",
+              docs_url=None if DEMO_MODE else "/docs", redoc_url=None if DEMO_MODE else "/redoc",
+              openapi_url=None if DEMO_MODE else "/openapi.json")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
@@ -45,12 +50,12 @@ def _wrap(fn, *a):
         return fn(*a)
     except cases.NotFound as e:
         raise HTTPException(404, str(e))
-    except cases.Invalid as e:
-        raise HTTPException(400, str(e))
+    except (cases.Invalid, consents.ConsentError) as e:
+        raise HTTPException(404 if "not found" in str(e) else 400, str(e))
 
 
 class ScenarioIn(BaseModel):
-    scenario: str = Field(pattern="^[ABCabc]$")
+    scenario: str = Field(pattern="^[A-Ea-e]$")
 
 
 class QuestionIn(BaseModel):
@@ -71,12 +76,17 @@ class StatusIn(BaseModel):
     status: str
 
 
+class ConsentIn(BaseModel):
+    source_system: str
+
+
 # ------------------------------------------------------------------- demo
 @app.get("/api/demo")
 def demo_state(s=Depends(session)):
     code = state.active_scenario(s)
     return {"scenario": code, "scenarios": list(SCENARIOS.values()), "ai_mode": "claude" if llm.enabled() else "offline",
-            "model": llm.MODEL if llm.enabled() else None, "synthetic_data": True}
+            "model": llm.MODEL if llm.enabled() and not DEMO_MODE else None, "synthetic_data": True,
+            "demo_mode": DEMO_MODE}
 
 
 @app.post("/api/demo/scenario")
@@ -104,6 +114,28 @@ def home_share_preview(run_id: str, s=Depends(session)):
 @app.post("/api/home/support-request")
 def home_handoff(body: HandoffIn, s=Depends(session)):
     return _wrap(cases.create_case_from_homeowner, s, body.run_id, body.approved, body.note)
+
+
+@app.get("/api/home/savings")
+def home_savings(window: str = "7d", s=Depends(session)):
+    if window not in datamodel.SAVINGS_WINDOWS:
+        raise HTTPException(400, f"window must be one of {sorted(datamodel.SAVINGS_WINDOWS)}")
+    return datamodel.home_savings(s, window)
+
+
+@app.get("/api/home/consents")
+def home_consents(s=Depends(session)):
+    return consents.list_consents(s)
+
+
+@app.post("/api/home/consents")
+def home_consent_grant(body: ConsentIn, s=Depends(session)):
+    return _wrap(consents.grant, s, body.source_system)
+
+
+@app.post("/api/home/consents/{consent_id}/revoke")
+def home_consent_revoke(consent_id: str, s=Depends(session)):
+    return _wrap(consents.revoke, s, consent_id)
 
 
 @app.get("/api/home/cases")
@@ -154,6 +186,8 @@ def support_diagnose(body: QuestionIn, role=Depends(support_role), s=Depends(ses
 
 @app.get("/api/support/data-model")
 def support_data_model(role=Depends(support_role), s=Depends(session)):
+    if DEMO_MODE:
+        raise HTTPException(404, "not available in demo mode")
     return datamodel.data_model(s)
 
 

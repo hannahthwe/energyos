@@ -13,11 +13,13 @@ from .adapters import SOURCE_LABELS
 from .seed import DEMO_NOW_UTC
 
 NATIVE = {
-    "crm": [S.CrmAccount, S.CrmSite, S.CrmRegisteredAsset, S.CrmCase, S.CrmCommissioning],
+    "crm": [S.CrmAccount, S.CrmSite, S.CrmRegisteredAsset, S.CrmCase, S.CrmCommissioning, S.CrmSupplyPoint],
     "hems_backend": [S.HemsHome, S.HemsAsset, S.HemsSchedule, S.HemsConstraint, S.HemsCommand, S.HemsTelemetry, S.HemsEvent],
     "charger_integration": [S.ChgChargepoint, S.ChgSession, S.ChgMeterValue],
     "knowledge_base": [S.KbArticle],
     "config_audit": [S.AuditConfigLog],
+    "energy_supplier": [S.SupContract, S.SupSteeringEvent],
+    "market_data": [S.MktDayAheadPrice],
 }
 KEY_FIELDS = {
     "crm": "crm_customer_ref, site_ref, asset_reg_id",
@@ -25,6 +27,8 @@ KEY_FIELDS = {
     "charger_integration": "chargepoint_ref, session_state, power_kw (+ = export), ISO-8601 with offset",
     "knowledge_base": "article_code, audience",
     "config_audit": "audit_seq, param_path, changed_by, client_id",
+    "energy_supplier": "contract_no, supply_point_ref, ct/kWh, local time + tz name",
+    "market_data": "bidding_zone, delivery_hour (local + tz name), EUR/MWh",
 }
 
 
@@ -81,6 +85,25 @@ def data_model(s: Session) -> dict:
                            "canonical": f"EnergyMeasurement household_load = {tel.reading / 1000} kW",
                            "rule": "W -> kW, ms epoch -> UTC ISO"})
 
+    sup = s.scalars(select(S.SupSteeringEvent)).first()
+    if sup:
+        cse = s.get(C.GridSteeringEvent, f"CC-GSE-{sup.steering_ref}")
+        if cse:
+            transforms.append({"source_system": "energy_supplier",
+                               "native": f"sup_steering_events.local_start = '{sup.local_start}' ({sup.tz_name}), "
+                                         f"controllable_unit = '{sup.controllable_unit}', max_kw = {sup.max_kw}",
+                               "canonical": f"GridSteeringEvent.start_time_utc = {cse.start_time_utc}, device_type = "
+                                            f"'{cse.device_type}', requested_max_kw = {cse.requested_max_kw}",
+                               "rule": "local time + tz -> UTC; supplier unit code -> canonical device type; contract linked "
+                                       "to the site only via the verified CRM supply point"})
+    mkt = s.scalars(select(S.MktDayAheadPrice)).first()
+    if mkt:
+        cp = s.get(C.PriceSeries, f"CC-PRC-{mkt.price_ref}")
+        transforms.append({"source_system": "market_data",
+                           "native": f"mkt_day_ahead_prices.price_eur_mwh = {mkt.price_eur_mwh}, delivery_hour = '{mkt.delivery_hour}'",
+                           "canonical": f"PriceSeries.price_eur_kwh = {cp.price_eur_kwh}, start_time_utc = {cp.start_time_utc}",
+                           "rule": "EUR/MWh -> EUR/kWh; local hour -> UTC"})
+
     return {"sources": sources, "canonical_entities": canonical, "device_mappings": maps, "identity_chain": chain,
             "transforms": transforms, "unmapped_records": state.unmapped_records(s),
             "conventions": {"power": "kW; + = device draws energy (charging), - = device supplies the home (discharging)",
@@ -96,7 +119,7 @@ def home_overview(s: Session) -> dict:
     reserve = cons[0]["threshold_value"] if cons else None
     devices = T.get_device_status(s, iid)["devices"]
     charger = next((d for d in devices if d["device_type"] == "ev_charger"), {})
-    sched = T.get_energy_schedule(s, iid, w)["schedules"]
+    sched = [x for x in T.get_energy_schedule(s, iid, w)["schedules"] if x["action"] == "v2h_discharge"]
     loads = [m for m in s.scalars(select(C.EnergyMeasurement).where(C.EnergyMeasurement.measurement_type == "household_load"))]
     loads.sort(key=lambda m: m.timestamp_utc)
     power = T.compare_expected_actual_power(s, iid, w)
@@ -128,3 +151,38 @@ def home_overview(s: Session) -> dict:
                  "load_series": [{"t": m.timestamp_utc[11:16], "kw": m.value} for m in loads]},
         "recent_findings": recent,
     }
+
+
+SAVINGS_WINDOWS = {"7d": 7, "1d": 1}
+
+
+def home_savings(s: Session, window: str = "7d") -> dict:
+    """Homeowner 'Savings' card: deterministic, straight from compare_actual_vs_cheapest."""
+    from datetime import timedelta
+
+    days = SAVINGS_WINDOWS[window]
+    w = T.Window(DEMO_NOW_UTC - timedelta(days=days), DEMO_NOW_UTC)
+    r = T.compare_actual_vs_cheapest(s, state.INSTALLATION_ID, w)
+    sessions = [{"date": x["start_time_utc"][:10], "start": x["start_time_utc"][11:16],
+                 "end": (x["end_time_utc"] or "")[11:16], "energy_kwh": x["energy_kwh"],
+                 "actual_eur": x["actual_cost_eur"], "cheapest_eur": x["cheapest_cost_eur"], "saving_eur": x["saving_eur"],
+                 "departure": x["departure_utc"][11:16] if x["departure_utc"] else None,
+                 "smart_charging_on": x["smart_charging_on"],
+                 "cheapest_hours": [h["start_time_utc"][11:16] for h in x["cheapest_hours"]]} for x in r["sessions"]]
+    unavailable = [u["plain_label"] for u in r["unavailable_sources"]]
+    if r["contract_type"] is None:
+        tip = "Your tariff isn't available, so we can't work out charging costs." + (
+            " Turn on Energy supplier in Data & privacy." if "Energy supplier" in unavailable else "")
+    elif not sessions:
+        tip = "No EV charging in this period."
+    elif r["contract_type"] == "fixed":
+        tip = "You have a fixed price, so the time you charge doesn't change the cost."
+    elif (r["total_saving_eur"] or 0) >= 0.5:
+        tip = "Turn on smart charging and keep your departure time: the Hub will charge in the cheapest hours."
+    else:
+        tip = "You're already charging in cheap hours."
+    return {"window": window, "contract_type": r["contract_type"], "complete": r["complete"],
+            "energy_kwh": r["total_energy_kwh"], "actual_eur": r["total_actual_eur"],
+            "cheapest_eur": r["total_cheapest_eur"], "saving_eur": r["total_saving_eur"],
+            "sessions": sessions, "tip": tip, "unavailable_sources": unavailable,
+            "evidence_count": len(r["evidence_ids"])}

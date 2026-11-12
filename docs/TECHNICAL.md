@@ -75,14 +75,14 @@ There is no real login. Each request names its role in the `X-Demo-Role` header,
 
 ## 4. API reference
 
-Base path `/api`. Interactive docs: `http://localhost:8000/docs` (FastAPI/OpenAPI).
+Base path `/api`. Interactive docs: `http://localhost:8000/docs` (FastAPI/OpenAPI). They are switched off in demo mode (section 10).
 
 ### Demo
 
 | Method | Path | Body | Returns |
 |---|---|---|---|
-| GET | `/demo` | — | active scenario, scenario list, `ai_mode` (`claude`/`offline`), model |
-| POST | `/demo/scenario` | `{"scenario": "A" \| "B" \| "C"}` | the new scenario |
+| GET | `/demo` | — | active scenario, scenario list, `ai_mode` (`claude`/`offline`), model (hidden in demo mode), `demo_mode` |
+| POST | `/demo/scenario` | `{"scenario": "A" \| "B" \| "C" \| "D" \| "E"}` | the new scenario |
 
 ### Homeowner (`X-Demo-Role: homeowner`)
 
@@ -93,20 +93,24 @@ Base path `/api`. Interactive docs: `http://localhost:8000/docs` (FastAPI/OpenAP
 | GET | `/home/support-request/{run_id}/preview` | — | summary and the exact evidence list that would be shared |
 | POST | `/home/support-request` | `{"run_id": "...", "approved": true, "note": "..."}` | `case_id`, `status`, `title`. Returns `400` if `approved` is not `true` |
 | GET | `/home/cases` | — | the homeowner's cases and their current status |
+| GET | `/home/savings?window=7d` | `window` = `7d` or `1d` | Savings card: contract type, € paid, € cheapest possible, € saving, per-session cheapest hours, tip |
+| GET | `/home/consents` | — | Data & privacy list: one row per source with `active`, `legal_basis`, `scope`, `expires_at`, `revoked_at` |
+| POST | `/home/consents` | `{"source_system": "charger_integration"}` | grants (or returns the active) consent for that source |
+| POST | `/home/consents/{consent_id}/revoke` | — | revokes it; tools then report the source as unavailable |
 
 ### Support (`X-Demo-Role: support`)
 
 | Method | Path | Body | Returns |
 |---|---|---|---|
 | GET | `/support/cases` | — | case queue |
-| GET | `/support/cases/{id}` | — | case, customer, installation, devices, previous interactions, messages, consent, diagnosis, escalation |
+| GET | `/support/cases/{id}` | — | case, customer, installation, devices, previous interactions, messages, case-share consent, `data_consents` (which sources the homeowner consents to), diagnosis, escalation |
 | POST | `/support/cases/{id}/ask` | `{"question": "..."}` | copilot answer, agents used, evidence IDs |
 | POST | `/support/cases/{id}/notes` | `{"text": "..."}` | saved internal note |
 | POST | `/support/cases/{id}/draft-response` | — | customer reply draft (homeowner-safe facts only) |
 | POST | `/support/cases/{id}/escalation` | — | partner package (no restricted records for external partners) |
 | PATCH | `/support/cases/{id}/status` | `{"status": "New" \| "Investigating" \| "Escalated" \| "Resolved"}` | updated case |
 | POST | `/support/diagnose` | `{"question": "..."}` | full support-level diagnosis without a case |
-| GET | `/support/data-model` | — | sources, canonical entities, device mappings, transforms, rejected matches |
+| GET | `/support/data-model` | — | sources, canonical entities, device mappings, transforms, rejected matches (`404` in demo mode) |
 
 Errors: `400` invalid input or missing consent, `403` wrong role, `404` unknown case or run, `422` body failed validation.
 
@@ -150,17 +154,18 @@ Key points:
 | Module | Responsibility |
 |---|---|
 | `main.py` | Routes, role check, request validation, serves the built web app |
-| `sources.py` | The four simulated source systems, each with its own schema (`crm_`, `hems_`, `chg_`, `kb_`/`audit_` tables) |
-| `seed.py` | Synthetic data: customer, devices and scenarios A/B/C |
+| `sources.py` | The six simulated source systems, each with its own schema (`crm_`, `hems_`, `chg_`, `kb_`/`audit_`, `sup_`, `mkt_` tables) |
+| `seed.py` | Synthetic data: customer, devices (incl. a home battery), a week of hourly prices, scenarios A–E |
 | `adapters.py` | Converts source records into the canonical model: units to kW, sign convention (+ draws, − supplies the home), times to UTC, device identity checked via commissioning records and serial numbers |
 | `canonical.py` | Unified data model (`cc_` tables) |
-| `tools.py` | Deterministic tools the agents call (device status, sessions, schedules, SOC history, config changes, KB search…) |
-| `agents.py` | Technical Diagnostics, Energy Behaviour, Security Correlation, Support Resolution |
+| `tools.py` | Deterministic tools the agents call (device status, sessions, schedules, SOC history, config changes, KB search, tariff, grid steering, prices, savings) |
+| `agents.py` | Technical Diagnostics, Energy Behaviour, Security Correlation, Support Resolution, Grid & Tariff |
+| `consents.py` | Data-access consent manager (EU Data Act / contract), used by every tool to hide unconsented sources |
 | `orchestrator.py` | Picks the agents, combines findings into facts / interpretation / missing info / actions / evidence / escalation |
 | `llm.py` | Claude mode: agents exposed as tools, validated structured output, falls back to offline on any error |
 | `cases.py` | Consent preview, case creation, copilot follow-ups, notes, draft, escalation, status |
 | `visibility.py` | Role → visibility levels |
-| `datamodel.py` | Data model view and the homeowner overview |
+| `datamodel.py` | Data model view, the homeowner overview and the Savings card |
 | `state.py`, `db.py` | Active scenario, DB setup and reset |
 
 ### Data pipeline
@@ -171,20 +176,33 @@ flowchart LR
   HEMS[hems_*] --> A
   CHG[chg_*] --> A
   KB[kb_* / audit_*] --> A
+  SUP[sup_* supplier] --> A
+  MKT[mkt_* market prices] --> A
   A -->|verified devices only| CC[cc_* canonical tables]
   A -->|rejected| UN[unmapped records]
   CC --> T[tools] --> AG[agents] --> O[orchestrator]
+  CON[(consent records)] -.->|active sources only| T
 ```
+
+New sources and how they map:
+
+| Native table | Native shape | Canonical table | Rule |
+|---|---|---|---|
+| `sup_contracts` | `tariff_kind` FIX/DYN, rates in **cents/kWh**, `supply_point_ref` | `cc_tariff_contracts` | ct → EUR/kWh; contract attached to a site **only** through the verified CRM supply point (`crm_supply_points`), never by name |
+| `sup_steering_events` | local `"2026-11-09 18:00"` + tz name, unit code `HOME_BATTERY`, `max_kw`, reason, grid operator | `cc_grid_steering_events` | local → UTC, unit code → `home_battery` |
+| `mkt_day_ahead_prices` | local hour + tz name, **EUR/MWh** | `cc_price_series` | EUR/MWh → EUR/kWh, local → UTC; public data, not tied to a home |
+
+All three keep `source_system` and `source_record_id`. Evidence IDs look like `EVD-SUP-GSR-44871` and `EVD-MKT-DA-SYN1-20261109-18`.
 
 Every canonical record keeps `source_system` and `source_record_id`, and becomes evidence with an ID such as `EVD-HEMS-hc_90017`. Answers can only cite evidence IDs that an agent actually returned.
 
 ### Database
 
-One SQLite file with 37 tables. They're grouped by prefix: `crm_`, `hems_`, `chg_`, `kb_`/`audit_` (simulated sources) and `cc_` (ConnectedCare's own model and workflow).
+One SQLite file with 44 tables. They're grouped by prefix: `crm_`, `hems_`, `chg_`, `kb_`/`audit_`, `sup_`, `mkt_` (simulated sources) and `cc_` (ConnectedCare's own model and workflow). A database created by an older version is rebuilt automatically at startup.
 
 ## 7. The agents
 
-There are **4 specialist agents** and **1 orchestrator** that coordinates them. Together they use **14 tools** (`tools.py`), and each agent owns its own set. The tools are plain Python functions that run database queries; they never guess or call the internet.
+There are **5 specialist agents** and **1 orchestrator** that coordinates them. Together they use **18 tools** (`tools.py`), and each agent owns its own set. The tools are plain Python functions that run database queries; they never guess or call the internet.
 
 ```mermaid
 flowchart TB
@@ -193,7 +211,8 @@ flowchart TB
   O --> EB["Energy Behaviour Agent"]
   O --> SC["Security Correlation Agent"]
   O --> SR["Support Resolution Agent"]
-  TD & EB & SC & SR --> R["Findings + evidence IDs<br/>+ missing information"]
+  O --> GT["Grid & Tariff Agent"]
+  TD & EB & SC & SR & GT --> R["Findings + evidence IDs<br/>+ missing information"]
   R --> O
   O --> A["Answer: facts · interpretation · unknowns<br/>· actions · evidence · escalation"]
 ```
@@ -204,6 +223,7 @@ flowchart TB
 | **Energy Behaviour** | Battery level vs. minimum reserve, schedules, expected vs. measured power | `get_energy_schedule`, `get_soc_history`, `get_operating_constraints`, `compare_expected_actual_power` | `cc_energy_schedules`, `cc_energy_measurements`, `cc_operating_constraints` |
 | **Security Correlation** | Setting changes near the incident and who made them; flags for human review, never declares an attack | `get_configuration_changes`, `correlate_changes_with_incident` | `cc_configuration_changes` |
 | **Support Resolution** | Customer profile, past cases, help articles and manuals, escalation context | `get_customer_profile`, `get_previous_cases`, `search_knowledge_base` | `cc_customers`, `cc_installations`, `cc_previous_interactions`, `cc_knowledge_articles` |
+| **Grid & Tariff** | Supplier contract, grid-steering events and the device's measured response, day-ahead prices, EV charging cost vs the cheapest hours before departure | `get_tariff_contract`, `get_steering_events`, `get_price_series`, `compare_actual_vs_cheapest` | `cc_tariff_contracts`, `cc_grid_steering_events`, `cc_price_series`, `cc_energy_measurements`, `cc_energy_schedules`, `cc_charging_sessions` |
 | *Shared* | Look up any evidence item by ID | `evidence_lookup` | `cc_evidence_records`, `cc_knowledge_articles` |
 
 ### Who can access which data
@@ -215,16 +235,17 @@ flowchart LR
     HEMS[(hems_*)]
     CHG[(chg_*)]
     KBA[(kb_* / audit_*)]
+    SUPS[(sup_* / mkt_*)]
   end
   AD["adapters.py<br/>(only reader of raw tables)"]
   subgraph CAN["Unified model (cc_*)"]
     CC[(canonical data<br/>+ evidence)]
     WF[(cases, messages,<br/>consent, runs)]
   end
-  AG["4 agents<br/>(read-only)"]
+  AG["5 agents<br/>(read-only)"]
   OR["Orchestrator"]
   CS["cases.py"]
-  CRM & HEMS & CHG & KBA --> AD -->|write| CC
+  CRM & HEMS & CHG & KBA & SUPS --> AD -->|write| CC
   CC -->|read| AG --> OR
   OR -->|write diagnosis runs| WF
   CS -->|read / write| WF
@@ -234,6 +255,7 @@ flowchart LR
 - **Only the adapters read the raw source tables.** Agents never see `crm_`, `hems_` or `chg_` records directly; they only see the cleaned, verified `cc_` data. This is what makes the "unified data model" real.
 - **Agents are read-only.** They can't change settings, send commands to devices or edit cases.
 - **The Security agent's data is `restricted`.** Its findings reach support staff only, never the homeowner app or the external charger partner.
+- **Tools respect consent.** A source with no active consent returns no rows and is reported as `unavailable_sources`, so answers say that data is unavailable.
 - **The Claude API never gets database access.** It only sees agent outputs that the backend passes to it, already filtered for the role.
 
 ## 8. How a question is processed
@@ -262,7 +284,8 @@ flowchart TD
 1. **Energy Behaviour** always runs first: is the battery above the reserve, was the schedule on, did power flow?
 2. **Technical Diagnostics** always runs: was the command sent, and did the charger accept it?
 3. **Security Correlation** runs **only if** the question asks about settings, **or** the reserve blocked the discharge *and* was changed recently. Otherwise it is shown as "not used" with the reason.
-4. **Support Resolution** always runs last, searching help articles with keywords taken from the other agents' findings.
+4. **Grid & Tariff** runs when the question is about grid steering, a paused battery, prices, tariffs, cost or savings (then only Grid & Tariff and Support Resolution run), **or** when the supplier reports a grid-steering event in the time window, whatever the question.
+5. **Support Resolution** always runs last, searching help articles with keywords taken from the other agents' findings.
 
 The orchestrator then chooses the likely cause from the agents' signals:
 
@@ -271,7 +294,23 @@ The orchestrator then chooses the likely cause from the agents' signals:
 | Battery below reserve, reserve unchanged | `soc_reserve`: working as designed (Scenario A) | No |
 | Command sent, charger rejected it | `charger_rejection`: charger partner must check its logs (Scenario B) | Yes → Voltara |
 | Reserve blocked it and was raised by an unknown client shortly before | `config_change_raised_reserve`: human security review (Scenario C) | Yes → internal security |
+| Supplier steering event in the window | `grid_steering`: not a fault, household compensated under its steering agreement (Scenario D) | No |
+| Dynamic contract, saving ≥ €0.50 vs the cheapest hours before departure | `peak_charging`: € paid, € possible, cheaper hours (Scenario E) | No |
+| Fixed price, no charging, or already cheap | `no_savings` | No |
+| A needed source has no active consent | `data_unavailable`: the answer says which data is unavailable | No |
 | No clear signal | `unknown` / `no_fault` | Depends |
+
+### The savings calculation (`compare_actual_vs_cheapest`)
+
+Fully deterministic, no LLM:
+
+1. **Energy per hour:** charger meter values every 15 minutes, each counted as 15 minutes at that power.
+2. **Unit price:** fixed price, or day-ahead price + the contract's markup, per hour.
+3. **Actual cost:** Σ kWh × price for the hours the car really charged.
+4. **Cheapest plan:** whole hours between plug-in and the departure time (the smart-charging schedule's ready-by), sorted by price, filled at the session's own charging power until the same energy is reached.
+5. Missing contract, departure time or price → that figure is `None` and the reason goes into `missing`. Nothing is estimated.
+
+Scenario E: 22.2 kWh charged 18:00–21:00 cost **€8.15**. The cheapest hours before the 07:00 departure (02:00, 03:00, 04:00) would have cost **€4.54**, a saving of **€3.60**. Over 7 days (two sessions) it's €13.65 vs €7.53.
 
 ### Claude mode (tool-calling loop)
 
@@ -280,7 +319,7 @@ sequenceDiagram
   participant O as Backend (llm.py)
   participant C as Claude API
   participant A as Agents + tools
-  O->>C: system prompt + question + 5 tools<br/>(4 agents + submit_diagnosis)
+  O->>C: system prompt + question + 6 tools<br/>(5 agents + submit_diagnosis)
   loop up to 8 turns
     C->>O: tool_use: run_energy_behaviour_agent
     O->>A: run agent (deterministic)
@@ -307,7 +346,7 @@ sequenceDiagram
 | Effort | `output_config: {"effort": "low"}`, override with `CONNECTEDCARE_EFFORT` | Keeps answers fast enough for a live demo; raise to `medium`/`high` for harder cases |
 | Max output | `max_tokens: 16000` per turn | Room for thinking plus the structured diagnosis |
 | Fallback | beta `server-side-fallback-2026-07-01` with `fallbacks: "default"` | If the model declines, the API retries on a fallback model instead of failing |
-| Tools | 4 agent tools (`run_technical_diagnostics_agent`, `run_energy_behaviour_agent`, `run_security_correlation_agent`, `run_support_resolution_agent`) + `submit_diagnosis`, all `strict: true` | Strict JSON schemas so tool inputs always match |
+| Tools | 5 agent tools (`run_technical_diagnostics_agent`, `run_energy_behaviour_agent`, `run_security_correlation_agent`, `run_support_resolution_agent`, `run_grid_tariff_agent`) + `submit_diagnosis`, all `strict: true` | Strict JSON schemas so tool inputs always match |
 | Output schema | `submit_diagnosis` differs by role: homeowner gets headline / what happened / why / unknowns / next steps; support gets answer, observed facts and interpretation with evidence IDs, missing information, actions | The same model writes in two voices with two schemas |
 | Prompting | One system prompt with the rules (use only agent output, separate facts from interpretation, declare missing data, never claim a cyberattack, cite evidence IDs), plus a homeowner or support audience block | Rules live in the prompt *and* are enforced in code |
 | Data Claude sees | Only agent results, already filtered by `visibility.py` for the role. No database access, no raw source records | Least privilege |
@@ -335,7 +374,7 @@ export ANTHROPIC_API_KEY=sk-ant-...
 
 The dashboard header then shows **"Claude · claude-opus-5-5"** instead of "Offline deterministic mode", and each answer is labelled with the mode that produced it.
 
-Without a key, the app uses the **offline orchestrator**: the same 4 agents and 14 tools, with fixed routing rules and template wording. The answers are correct for all three scenarios but less flexible for unusual questions.
+Without a key, the app uses the **offline orchestrator**: the same 5 agents and 18 tools, with fixed routing rules and template wording. The answers are correct for all five scenarios but less flexible for unusual questions.
 
 > **Status:** the Claude path is covered by automated tests that use a scripted, fake Claude. It has **not yet been run against the live Claude API** from this machine, because no API key was available. Run one question with a key before relying on it in a pitch. If anything fails, the app falls back to offline mode automatically and says so in the answer.
 
@@ -349,13 +388,47 @@ Without a key, the app uses the **offline orchestrator**: the same 4 agents and 
 | `CONNECTEDCARE_OFFLINE` | unset | `1` forces offline mode even when a key is set |
 | `CONNECTEDCARE_MODEL` | `claude-opus-5-5` | Claude model |
 | `CONNECTEDCARE_EFFORT` | `low` | Claude effort level |
+| `CONNECTEDCARE_DEMO_MODE` | unset | `1` turns on presentation mode (below) |
+
+### Demo / presentation mode
+
+`CONNECTEDCARE_DEMO_MODE=1 ./start-demo.sh` hides internals from the UI so a pitch audience sees the product, not the plumbing:
+
+| Hidden | How |
+|---|---|
+| Agent and tool details panel, agent badges on copilot answers | web checks `demo_mode` from `/api/demo` |
+| Raw evidence IDs | shown as "Evidence (3)" chips; evidence table drops the ID and record columns |
+| Data-model panel | not rendered; `/api/support/data-model` returns `404` |
+| Model name in the header | `/api/demo` returns `model: null`; header shows "Claude" or "AI assistant" |
+| FastAPI `/docs`, `/redoc`, `/openapi.json` | disabled |
+
+Everything else (answers, consent, savings, escalation) works the same.
+
+## 9b. Data Act consent manager
+
+`ConsentRecord` (`cc_consent_records`) now has `source_system`, `scope`, `legal_basis`, `expires_at` and `revoked_at`. Two kinds of record share the table:
+
+| Scope | Meaning |
+|---|---|
+| `data_access:<source>` | May ConnectedCare use this source at all? One per gated source |
+| `case_share` | The homeowner shared a diagnosis with support (existing handoff consent) |
+
+| Source | Legal basis | Default |
+|---|---|---|
+| Home energy system (`hems_backend`) | contract | on, no expiry |
+| EV charger (`charger_integration`) | EU Data Act - user-designated recipient | on, 1 year |
+| Energy supplier (`energy_supplier`) | EU Data Act - user-designated recipient | on, 1 year |
+| Settings history (`config_audit`) | contract | on, no expiry |
+| Market prices (`market_data`) | public data | always on, not toggleable |
+
+CRM and the knowledge base are needed to run the service and are not gated. The homeowner turns sources on or off on the **Data & privacy** screen (web `/app` lock icon, iOS lock button). The support case page shows which sources are consented. When a source is off, its rows disappear from every tool, the agents list it under missing information, and the homeowner answer says "… data isn't available because sharing it is turned off".
 
 ## 10. Running and testing
 
 ```bash
 cd connectedcare/backend && .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
 cd connectedcare/web && npm run build          # served at :8000/support and :8000/app
-cd connectedcare/backend && .venv/bin/python -m pytest -q   # 19 tests
+cd connectedcare/backend && .venv/bin/python -m pytest -q   # 36 tests
 cd connectedcare/web && npm run typecheck
 ```
 

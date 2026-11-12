@@ -21,6 +21,9 @@ from .seed import DEMO_NOW_UTC, SCENARIOS
 from .visibility import allowed_levels, filter_evidence
 
 INTENTS = {
+    "savings": ["cost", "price", "cheap", "expensive", "saving", "save ", "could i save", "tariff", "paid", "bill", "€", "euro"],
+    "grid_steering": ["grid", "steering", "paused", "pause", "home battery", "battery stop", "congestion", "operator",
+                      "supplier"],
     "config_change": ["config", "setting", "changed", "change", "security", "hack", "attack", "audit", "who changed"],
     "which_system": ["which system", "which device", "who rejected", "rejected the command", "what rejected"],
     "reserve": ["reserve", "soc", "state of charge", "battery level"],
@@ -47,6 +50,9 @@ def window_for(question: str, now: datetime = DEMO_NOW_UTC) -> T.Window:
 
 
 def incident_time(s: Session, installation_id: str, w: T.Window) -> datetime:
+    steer = T.get_steering_events(s, installation_id, w)["events"]
+    if steer:
+        return T.parse(steer[0]["start_time_utc"])
     cmds = T.correlate_command_response(s, installation_id, w)["commands"]
     if cmds:
         return T.parse(cmds[0]["timestamp_utc"])
@@ -62,7 +68,12 @@ def make_ctx(s: Session, question: str) -> A.Ctx:
     return A.Ctx(s=s, installation_id=iid, window=w, incident_at=incident_time(s, iid, w), customer_id=state.CUSTOMER_ID)
 
 
-def kb_terms(energy: dict, tech: dict, sec: dict) -> list[str]:
+def kb_terms(energy: dict, tech: dict, sec: dict, grid: dict | None = None, intent: str = "") -> list[str]:
+    grid = grid or {}
+    if grid.get("steering_events") or intent == "grid_steering":
+        return ["grid", "steering", "battery", "paused"]
+    if grid.get("peak_charging") or intent == "savings":
+        return ["tariff", "dynamic", "price", "smart charging"]
     terms = ["v2h", "discharge"]
     if energy.get("reserve_blocks"):
         terms += ["reserve", "soc"]
@@ -76,6 +87,15 @@ def kb_terms(energy: dict, tech: dict, sec: dict) -> list[str]:
 # ------------------------------------------------------------------ offline
 def run_agents_offline(ctx: A.Ctx, intent: str, role: str) -> dict[str, A.AgentResult]:
     res: dict[str, A.AgentResult] = {}
+    if intent in ("grid_steering", "savings"):
+        res[A.GRID.key] = A.GRID.run(ctx)
+        topic = "grid steering" if intent == "grid_steering" else "energy prices and charging cost"
+        for a in (A.ENERGY, A.TECH, A.SECURITY):
+            res[a.key] = A.not_used(a, f"Not needed: the question is about {topic}.")
+        res[A.SUPPORT.key] = A.SUPPORT.run(ctx, kb_terms({}, {}, {}, res[A.GRID.key].signals, intent),
+                                           include_internal=role != "homeowner")
+        return res
+    steering = T.get_steering_events(ctx.s, ctx.installation_id, ctx.window)["events"]
     res[A.ENERGY.key] = A.ENERGY.run(ctx)
     res[A.TECH.key] = A.TECH.run(ctx)
     e = res[A.ENERGY.key].signals
@@ -86,8 +106,14 @@ def run_agents_offline(ctx: A.Ctx, intent: str, role: str) -> dict[str, A.AgentR
         since = e.get("reserve_valid_from") or "unknown"
         res[A.SECURITY.key] = A.not_used(
             A.SECURITY, f"Not needed: the active reserve has been unchanged since {since[:10]} and the question did not ask about settings.")
+    if steering:
+        res[A.GRID.key] = A.GRID.run(ctx)
+    else:
+        res[A.GRID.key] = A.not_used(A.GRID, "Not needed: no grid-steering event in the window and the question did not "
+                                             "ask about prices or tariffs.")
     res[A.SUPPORT.key] = A.SUPPORT.run(
-        ctx, kb_terms(e, res[A.TECH.key].signals, res[A.SECURITY.key].signals), include_internal=role != "homeowner")
+        ctx, kb_terms(e, res[A.TECH.key].signals, res[A.SECURITY.key].signals, res[A.GRID.key].signals),
+        include_internal=role != "homeowner")
     return res
 
 
@@ -102,13 +128,101 @@ def _facts(results: dict[str, A.AgentResult], keys: list[str]) -> list[dict]:
 
 def synthesize(ctx: A.Ctx, results: dict[str, A.AgentResult], question: str, intent: str) -> dict:
     get = lambda k: results[k].signals if k in results and results[k].used else {}  # noqa: E731
-    e, t, sec, sup = get(A.ENERGY.key), get(A.TECH.key), get(A.SECURITY.key), get(A.SUPPORT.key)
+    e, t, sec, sup, g = get(A.ENERGY.key), get(A.TECH.key), get(A.SECURITY.key), get(A.SUPPORT.key), get(A.GRID.key)
+    gaps = unavailable_of(results)
+    gap_labels = ", ".join(x["plain_label"] for x in gaps)
+    homeowner_headline = None
     flagged = sec.get("correlated_changes") or []
     reserve_change = next((c for c in flagged if c["setting_name"] == "v2h.reserve.min_soc_pct"), None)
     articles = {a["article_id"]: a for a in sup.get("articles", [])}
     kb_ids = [a["evidence_id"] for a in articles.values()]
 
-    if e.get("reserve_blocks") and reserve_change:
+    if g.get("steering_events") and intent != "savings":
+        ev = g["steering_events"][0]
+        con = g.get("contract") or {}
+        dev = ev["device_type"].replace("_", " ")
+        cause = "grid_steering"
+        headline = (f"No fault: {ev['grid_operator']} asked the supplier to limit the {dev} to {ev['requested_max_kw']:.1f} kW "
+                    f"from {ev['start_time_utc'][11:16]} to {ev['end_time_utc'][11:16]} UTC ({ev['reason']}). "
+                    "The HEMS followed the grid-steering request.")
+        interpretation = [{"text": f"The {dev} pause matches the supplier's grid-steering window, the HEMS measured the "
+                                   "limit being followed and normal operation resumed when the window ended. This is grid "
+                                   "steering, not a device fault.",
+                           "evidence_ids": g["steering_evidence"][:1] + g["device_response_evidence"]}]
+        if con.get("grid_steering_agreement"):
+            interpretation.append({"text": f"The contract has a grid-steering agreement, so the household is compensated "
+                                           f"({con['steering_compensation']}).", "evidence_ids": [con["evidence_id"]]})
+        confidence = {"level": "high", "explanation": "Supplier steering record, contract and HEMS measurements agree."}
+        escalation = {"required": False, "target": None, "reason": "Expected behaviour under the grid-steering agreement."}
+        actions_support = ["Send the homeowner KB-GRID-005 and close the case as 'no fault: grid steering'.",
+                           "No device action needed; the HEMS resumed automatically."]
+        actions_home = [f"Nothing to do: your {dev} went back to normal at {ev['end_time_utc'][11:16]}.",
+                        "Grid steering can happen again on busy evenings; your Hub handles it automatically.",
+                        "Your compensation comes through your energy contract (lower network charges)."]
+    elif intent == "savings" or g.get("peak_charging"):
+        sv, sessions = g.get("savings") or {}, g.get("sessions") or []
+        last = sessions[-1] if sessions else None
+        if g.get("peak_charging") and last:
+            cause = "peak_charging"
+            hours = ", ".join(h["start_time_utc"][11:16] for h in last["cheapest_hours"])
+            headline = (f"EV charging cost EUR {sv['total_actual_eur']:.2f}; charging in the cheapest hours before departure "
+                        f"would have cost EUR {sv['total_cheapest_eur']:.2f} (EUR {sv['total_saving_eur']:.2f} less).")
+            homeowner_headline = (f"You paid EUR {last['actual_cost_eur']:.2f} to charge. The cheapest hours would have cost "
+                                  f"EUR {last['cheapest_cost_eur']:.2f}, and your car would still have been ready on time.")
+            peak_ids = [h["evidence_id"] for h in last["actual_hours"] if h["evidence_id"]]
+            cheap_ids = [h["evidence_id"] for h in last["cheapest_hours"] if h["evidence_id"]]
+            interpretation = [
+                {"text": f"The car charged {last['energy_kwh']:.1f} kWh from {last['start_time_utc'][11:16]} to "
+                         f"{(last['end_time_utc'] or '')[11:16]} UTC, in the evening price peak, because smart charging was "
+                         f"{'off' if last['smart_charging_on'] is False else 'not limiting the start time'}.",
+                 "evidence_ids": last["evidence_ids"][:2] + peak_ids[:3]},
+                {"text": f"The cheapest hours that still meet the {last['departure_utc'][11:16]} UTC departure were {hours} UTC.",
+                 "evidence_ids": cheap_ids[:4]},
+            ]
+            confidence = {"level": "high", "explanation": "Deterministic calculation from charger meter values, the supplier "
+                                                          "contract and published day-ahead prices."}
+            escalation = {"required": False, "target": None, "reason": "Behaviour and settings question, no fault."}
+            actions_support = ["Explain dynamic-tariff timing to the homeowner (KB-TAR-011).",
+                               f"Suggest turning on smart charging with the {last['departure_utc'][11:16]} departure time."]
+            actions_home = ["Turn on smart charging in the Helio app (Charging > Smart charging) and keep your departure time.",
+                            f"Plug in as usual; the Hub will then charge in the cheapest hours (last night: {hours})."]
+        elif gaps and (not sessions or sv.get("total_saving_eur") is None):
+            cause = "data_unavailable"
+        elif not sessions:
+            cause = "no_savings"
+            headline = "No EV charging session was recorded in this period, so there is nothing to compare."
+            interpretation = [{"text": "No charging session in the window.", "evidence_ids": []}]
+        elif sv.get("contract_type") == "fixed":
+            cause = "no_savings"
+            headline = (f"Your contract has a fixed price, so charging at another time would not change the cost "
+                        f"(EUR {sv['total_actual_eur']:.2f} for {sv['total_energy_kwh']:.1f} kWh).")
+            interpretation = [{"text": "Fixed-price contract: the price per kWh is the same in every hour.",
+                               "evidence_ids": [g["contract"]["evidence_id"]] if g.get("contract") else []}]
+        elif sv.get("total_saving_eur") is None:
+            cause = "unknown"
+            headline = "The charging cost could not be fully calculated from the available data."
+            interpretation = [{"text": "Price, departure time or contract information is missing.", "evidence_ids": []}]
+        else:
+            cause = "no_savings"
+            headline = (f"Charging already used cheap hours: EUR {sv['total_actual_eur']:.2f}, within "
+                        f"EUR {sv['total_saving_eur']:.2f} of the cheapest plan.")
+            interpretation = [{"text": "Charging happened in low-price hours.", "evidence_ids": []}]
+        if cause in ("no_savings", "unknown"):
+            confidence = {"level": "high" if cause == "no_savings" else "low", "explanation": "Based on supplier, charger and market records."}
+            escalation = {"required": False, "target": None, "reason": "No fault."}
+            actions_support = ["No action needed."]
+            actions_home = ["Nothing to change."]
+    elif intent == "grid_steering" and not gaps:
+        cause = "no_grid_steering"
+        headline = "No grid-steering event was recorded for this home in the period checked."
+        interpretation = [{"text": "The supplier reported no grid-steering request for this installation.", "evidence_ids": []}]
+        confidence = {"level": "high", "explanation": "Supplier records are available and contain no steering event."}
+        escalation = {"required": False, "target": None, "reason": "No grid steering."}
+        actions_support = ["Check the other agents' findings for the cause."]
+        actions_home = ["Ask about the specific device that stopped, and we'll check it."]
+    elif intent == "grid_steering":
+        cause = "data_unavailable"
+    elif e.get("reserve_blocks") and reserve_change:
         cause = "config_change_raised_reserve"
         headline = (f"Discharge was blocked by the minimum reserve, which was raised {reserve_change['old_value']}% -> "
                     f"{reserve_change['new_value']}% by an unregistered API client "
@@ -160,8 +274,10 @@ def synthesize(ctx: A.Ctx, results: dict[str, A.AgentResult], question: str, int
                         "need less driving range kept back."]
     elif t.get("command_verdict", "").startswith("rejected_by_charger"):
         cause = "charger_rejection"
-        headline = (f"The charger rejected the V2H session ({t.get('charger_error_code')}). The HEMS behaved correctly. "
-                    "The rejection reason is not visible to HelioHEMS.")
+        code = t.get("charger_error_code")
+        headline = (f"The charger rejected the V2H session{f' ({code})' if code else ''}. The HEMS behaved correctly. "
+                    "The rejection reason is not visible to HelioHEMS."
+                    + (f" {gap_labels} records are unavailable (no consent)." if gaps else ""))
         interpretation = [
             {"text": f"Energy rules were satisfied (SOC {e.get('soc_pct', 0):.0f}% > reserve {e.get('reserve_pct', 0):.0f}%), "
                      "the schedule was active and the HEMS sent the request, so the HEMS side behaved correctly.",
@@ -187,6 +303,8 @@ def synthesize(ctx: A.Ctx, results: dict[str, A.AgentResult], question: str, int
         actions_home = ["Leave the car plugged in. Your home system will try again at the next scheduled window.",
                         "Don't change your settings; they are correct.",
                         "Request support so the charger manufacturer can check the charger's internal logs."]
+    elif gaps:
+        cause = "data_unavailable"
     elif e and not e.get("discharge_observed") and e.get("schedule_active"):
         cause = "unknown"
         headline = "No discharge was measured and no agent found a cause in the available data."
@@ -197,19 +315,38 @@ def synthesize(ctx: A.Ctx, results: dict[str, A.AgentResult], question: str, int
         actions_home = ["Request support."]
     else:
         cause = "no_fault"
-        headline = "V2H discharge was delivered as scheduled."
+        headline = ("V2H discharge was delivered as scheduled." if e.get("schedule_active")
+                    else "No failure found in the records checked.")
         interpretation = [{"text": "No failure found.", "evidence_ids": []}]
         confidence = {"level": "high", "explanation": "Measured discharge matches the schedule."}
         escalation = {"required": False, "target": None, "reason": "No fault."}
         actions_support, actions_home = ["None."], ["None needed."]
 
-    fact_keys = [A.SECURITY.key, A.ENERGY.key, A.TECH.key] if cause.startswith("config") else [A.ENERGY.key, A.TECH.key, A.SECURITY.key]
+    if cause == "data_unavailable":
+        headline = (f"Cannot fully answer: {gap_labels} data is unavailable because there is no active consent to use it."
+                    if gaps else "Cannot fully answer: the data needed is unavailable.")
+        homeowner_headline = (f"We can't fully answer this: sharing of your {gap_labels.lower()} data is turned off."
+                              if gaps else None)
+        interpretation = [{"text": "ConnectedCare does not use a source without active consent, so the cause cannot be "
+                                   "established from the remaining records.", "evidence_ids": []}]
+        confidence = {"level": "low", "explanation": "Required data is unavailable."}
+        escalation = {"required": False, "target": None, "reason": "Homeowner consent is needed before this can be diagnosed."}
+        actions_support = [f"Ask the homeowner whether they want to turn sharing for {gap_labels} back on in Data & privacy.",
+                           "Do not obtain the data through another channel without consent."]
+        actions_home = [f"For a full answer, turn {gap_labels} back on in Data & privacy.", "You can turn it off again at any time."]
+
+    if cause.startswith("config"):
+        fact_keys = [A.SECURITY.key, A.ENERGY.key, A.TECH.key, A.GRID.key]
+    elif cause in ("grid_steering", "peak_charging", "no_savings", "no_grid_steering"):
+        fact_keys = [A.GRID.key, A.ENERGY.key, A.TECH.key]
+    else:
+        fact_keys = [A.ENERGY.key, A.TECH.key, A.SECURITY.key, A.GRID.key]
     facts = _facts(results, fact_keys)
     missing = []
-    for k in (A.TECH.key, A.ENERGY.key, A.SECURITY.key):
+    for k in (A.GRID.key, A.TECH.key, A.ENERGY.key, A.SECURITY.key):
         r = results.get(k)
         if r and r.used:
-            missing += r.missing_information
+            missing += [m for m in r.missing_information if m not in missing]
     if not missing:
         missing = ["No material information is missing for this diagnosis."]
 
@@ -221,7 +358,17 @@ def synthesize(ctx: A.Ctx, results: dict[str, A.AgentResult], question: str, int
         "missing_information": missing,
         "recommended_actions": {"support": actions_support, "homeowner": actions_home},
         "evidence_ids": evidence_ids, "escalation": escalation,
+        "unavailable_sources": gaps, "homeowner_headline": homeowner_headline,
     }
+
+
+def unavailable_of(results: dict[str, A.AgentResult]) -> list[dict]:
+    out: dict[str, dict] = {}
+    for r in results.values():
+        if r.used:
+            for u in r.unavailable_sources:
+                out.setdefault(u["source_system"], u)
+    return list(out.values())
 
 
 # ------------------------------------------------------------- answers & views
@@ -273,8 +420,15 @@ def build_timeline(ctx: A.Ctx, role: str) -> list[dict]:
                       "source_system": source, "kind": kind})
 
     for x in T.get_energy_schedule(s, iid, w)["schedules"]:
-        add(x["start_time_utc"], f"HEMS V2H discharge schedule becomes active ({abs(x['requested_power_kw']):.1f} kW)",
-            x["evidence_id"], "hems_backend", "schedule")
+        label = {"v2h_discharge": f"HEMS V2H discharge schedule becomes active ({abs(x['requested_power_kw']):.1f} kW)",
+                 "battery_discharge": f"HEMS home battery discharge schedule active ({abs(x['requested_power_kw']):.1f} kW)",
+                 "smart_charge": f"EV plugged in; departure {x['end_time_utc'][11:16]} UTC, smart charging "
+                                 f"{'on' if x['enabled'] else 'off'}"}.get(x["action"], x["action"])
+        add(x["start_time_utc"], label, x["evidence_id"], "hems_backend", "schedule")
+    for x in T.get_steering_events(s, iid, w)["events"]:
+        add(x["start_time_utc"], f"Grid steering starts: {x['grid_operator']} limits {x['device_type'].replace('_', ' ')} "
+            f"to {x['requested_max_kw']:.1f} kW ({x['reason']})", x["evidence_id"], "energy_supplier", "steering")
+        add(x["end_time_utc"], "Grid steering ends", x["evidence_id"], "energy_supplier", "steering")
     for x in T.get_operating_constraints(s, iid, ctx.incident_at)["constraints"]:
         if T.parse(x["valid_from_utc"]) >= ctx.incident_at - timedelta(hours=24):
             add(x["valid_from_utc"], f"Minimum reserve {x['threshold_value']:.0f}% takes effect", x["evidence_id"],
@@ -292,13 +446,19 @@ def build_timeline(ctx: A.Ctx, role: str) -> list[dict]:
             x["hems_status"], f"HEMS requests {abs(x['requested_kw']):.1f} kW discharge")
         add(x["timestamp_utc"], label, x["evidence_ids"][0], "hems_backend", "command")
     for x in T.get_charger_sessions(s, iid, w)["sessions"]:
+        if x["session_type"] == "charge":
+            add(x["start_time_utc"], f"EV charging session starts ({x['session_status']})", x["evidence_id"],
+                "charger_integration", "charging")
+            continue
         add(x["start_time_utc"], f"Charger reports V2H session {x['session_status']}"
             + (f" ({x['reported_error_code']})" if x["reported_error_code"] else ""), x["evidence_id"],
             "charger_integration", "session")
     for x in T.get_device_events(s, iid, w)["events"]:
-        if x["event_type"] in ("discharge_inhibited", "discharge_not_observed", "evse_nack"):
+        if x["event_type"] in ("discharge_inhibited", "discharge_not_observed", "evse_nack", "grid_steering_applied",
+                               "grid_steering_ended"):
             add(x["timestamp_utc"], f"HEMS event: {x['message']}", x["evidence_id"], "hems_backend", "event")
     p = T.compare_expected_actual_power(s, iid, w)["samples"]
+    p = p if any(x["expected_kw"] for x in p) else []  # only meaningful when a discharge was scheduled
     after = [x for x in p if T.parse(x["timestamp_utc"]) >= ctx.incident_at + timedelta(minutes=5)]
     if after:
         x = after[0]
@@ -317,7 +477,7 @@ def build_timeline(ctx: A.Ctx, role: str) -> list[dict]:
 
 def homeowner_view(d: dict, results: dict[str, A.AgentResult], safe_evidence: list[dict]) -> dict:
     notes = []
-    for k in (A.ENERGY.key, A.TECH.key, A.SECURITY.key):
+    for k in (A.GRID.key, A.ENERGY.key, A.TECH.key, A.SECURITY.key):
         r = results.get(k)
         if r and r.used:
             notes += r.homeowner_notes
@@ -329,20 +489,34 @@ def homeowner_view(d: dict, results: dict[str, A.AgentResult], safe_evidence: li
                              "but no power came from the car.",
         "config_change_raised_reserve": "Last night your evening schedule started at 18:55, but your home did not use "
                                         "the car's battery.",
+        "grid_steering": "Last night your home battery stopped powering your home for a while, then started again.",
+        "peak_charging": "Your car charged as soon as it was plugged in, during the most expensive hours of the evening.",
+        "no_savings": "We compared what your charging cost with the cheapest possible hours.",
+        "no_grid_steering": "We checked your energy supplier's records for grid-steering requests.",
+        "data_unavailable": "We tried to check your records, but some of the data needed isn't shared with us.",
     }.get(cause, "We checked last night's records for your home.")
     unknown = {
         "soc_reserve": ["Nothing important is missing. We can't see why the car was at that level (for example, your driving)."],
         "charger_rejection": ["Why the charger declined. Only the charger manufacturer can see that information.",
                               "Whether it will happen again tonight."],
         "config_change_raised_reserve": ["Who changed the reserve setting and why. A specialist needs to check this."],
+        "grid_steering": ["When the grid operator will need to steer again. That depends on how busy the local grid is."],
+        "peak_charging": ["Prices further ahead than tomorrow. They are published one day in advance."],
+        "no_savings": [],
+        "no_grid_steering": [],
+        "data_unavailable": [],
     }.get(cause, ["We could not find a clear reason in the data we can access."])
+    unknown = unknown + [u["homeowner_message"] for u in d.get("unavailable_sources", [])]
+    if cause in ("no_savings", "no_grid_steering", "data_unavailable"):
+        notes = notes or [d["headline"]]
     return {
         "headline": {
             "soc_reserve": "Your car was below your minimum reserve, so it kept its charge. Nothing is broken.",
             "charger_rejection": "The charger didn't accept the request. Your home system worked correctly.",
             "config_change_raised_reserve": "Your minimum reserve was set higher than your car's charge. The setting "
                                             "was changed shortly before, so we recommend a quick check by support.",
-        }.get(cause, d["headline"]),
+            "grid_steering": "Your battery was paused by a grid-steering request, not a fault. You're compensated for it.",
+        }.get(cause, d.get("homeowner_headline") or d["headline"]),
         "what_happened": what,
         "why": notes,
         "unknown": unknown,
@@ -399,10 +573,13 @@ def diagnose(s: Session, question: str, role: str = "support", use_llm: bool | N
         view = homeowner_view(d, results, safe)
         if llm_text and llm_text.get("homeowner"):
             view.update({k: v for k, v in llm_text["homeowner"].items() if v})
+            gap_msgs = [u["homeowner_message"] for u in d.get("unavailable_sources", [])]
+            view["unknown"] = list(view.get("unknown") or []) + [m for m in gap_msgs if m not in (view.get("unknown") or [])]
         out = {
             "run_id": out["run_id"], "role": role, "question": question, "mode": mode, "mode_note": llm_note,
             "scenario": out["scenario"], "installation_id": ctx.installation_id, "window": out["window"],
             "likely_cause": d["likely_cause"], **view,
+            "unavailable_sources": [u["plain_label"] for u in d.get("unavailable_sources", [])],
             "timeline": out["timeline"], "created_at": out["created_at"],
         }
     s.add(C.DiagnosisRun(run_id=out["run_id"], role=role, question=question, scenario=scenario,
@@ -424,6 +601,8 @@ def offline_followup_from_snapshot(snapshot: dict, question: str) -> str:
         return sec.get("finding") or sec.get("reason_not_used") or "No security correlation result in the snapshot."
     if intent == "which_system":
         return agents.get("technical_diagnostics", {}).get("finding", "")
+    if intent in ("grid_steering", "savings"):
+        return agents.get("grid_tariff", {}).get("finding") or snapshot.get("headline", "")
     if intent == "reserve":
         return agents.get("energy_behaviour", {}).get("finding", "")
     return snapshot.get("headline", "")

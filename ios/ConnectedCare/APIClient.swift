@@ -71,6 +71,22 @@ struct APIClient {
         return try decoder.decode(HandoffResult.self, from: await request("/api/home/support-request", method: "POST", body: body))
     }
 
+    func savings(window: String = "7d") async throws -> Savings {
+        try decoder.decode(Savings.self, from: await request("/api/home/savings?window=\(window)"))
+    }
+
+    func consents() async throws -> [DataConsent] {
+        try decoder.decode([DataConsent].self, from: await request("/api/home/consents"))
+    }
+
+    func grantConsent(source: String) async throws {
+        _ = try await request("/api/home/consents", method: "POST", body: ["source_system": source])
+    }
+
+    func revokeConsent(id: String) async throws {
+        _ = try await request("/api/home/consents/\(id)/revoke", method: "POST", body: [:])
+    }
+
     func cases() async throws -> [HomeCase] {
         try decoder.decode([HomeCase].self, from: await request("/api/home/cases"))
     }

@@ -1,8 +1,8 @@
 """Synthetic HelioHEMS source-system data (SYNTHETIC DEMO DATA).
 
-One homeowner, one installation, three scenarios. Each scenario only
-changes the telemetry-type source tables; CRM, commissioning and the
-knowledge base stay the same.
+One homeowner, one installation, five scenarios. Each scenario only
+changes the telemetry-type source tables and the supplier records; CRM,
+commissioning, market prices and the knowledge base stay the same.
 
 All incidents happen on the evening of 2026-11-09. The installation is in
 Europe/London, which is UTC+0 in November, so local time == UTC.
@@ -47,13 +47,35 @@ SCENARIOS = {
             "agents": ["security_correlation", "energy_behaviour", "technical_diagnostics", "support_resolution"],
         },
     },
+    "D": {
+        "code": "D",
+        "name": "Grid steering paused the battery",
+        "summary": "Home battery discharge paused 18:00-19:00 because the supplier applied a grid-operator steering request (grid congestion). Not a fault; the household is compensated.",
+        "expected": {
+            "likely_cause": "grid_steering",
+            "escalation_required": False,
+            "agents": ["grid_tariff", "support_resolution"],
+        },
+    },
+    "E": {
+        "code": "E",
+        "name": "EV charged at the evening peak",
+        "summary": "Dynamic-price household charged the EV at the 18:00 peak with smart charging off. Cheaper night hours would still have met the 07:00 departure.",
+        "expected": {
+            "likely_cause": "peak_charging",
+            "escalation_required": False,
+            "agents": ["grid_tariff", "support_resolution"],
+        },
+    },
 }
 
 # Demo "now": the morning after the incident.
 DEMO_NOW_UTC = datetime(2026, 11, 10, 8, 30, tzinfo=timezone.utc)
 
 HOME = "h_7f3a9c21"
-GW, EVSE, EV = "ak_gw_01f2", "ak_evse_9b77", "ak_ev_3c10"
+GW, EVSE, EV, BAT = "ak_gw_01f2", "ak_evse_9b77", "ak_ev_3c10", "ak_bat_5d21"
+SUPPLY_POINT = "SP-1900012345678"
+CONTRACT = "NW-55120"
 CP = "CP-VOL-0045120"
 CP_DECOY = "CP-VOL-0045121"  # a neighbour's charger with a near-identical nickname
 
@@ -81,7 +103,12 @@ def seed_static(s: Session) -> None:
                              brand="Voltara", product_model="BiDi 11", serial_no="VB11-23-004512"),
         S.CrmRegisteredAsset(asset_reg_id="REG-55103", site_ref="SITE-UK-20931", product_category="Electric Vehicle",
                              brand="Kestrel Motors", product_model="e-Tourer 62", serial_no="KM62-0098812"),
+        S.CrmRegisteredAsset(asset_reg_id="REG-55104", site_ref="SITE-UK-20931", product_category="Home Battery",
+                             brand="HelioHEMS", product_model="Store 10", serial_no="HS10-2402-1190"),
     ])
+    s.add(S.CrmSupplyPoint(supply_point_ref=SUPPLY_POINT, site_ref="SITE-UK-20931",
+                           supplier_name="Northwind Energy (fictional)",
+                           verified_by="installer:BrightSpark/J.Okafor", verified_at="2026-03-14T11:45:00Z"))
     s.add_all([
         S.CrmCase(crm_case_no="CRM-10233", crm_customer_ref="CUST-88412", site_ref="SITE-UK-20931",
                   subject="App shows charger offline after router replacement", opened="2026-04-02",
@@ -102,6 +129,9 @@ def seed_static(s: Session) -> None:
         S.CrmCommissioning(commissioning_ref="COM-20931-C", site_ref="SITE-UK-20931", asset_reg_id="REG-55103",
                            hems_home_uid=HOME, hems_asset_key=EV, chargepoint_ref=None, scanned_serial="KM62-0098812",
                            verified_by="installer:BrightSpark/J.Okafor", verified_at="2026-03-14T11:34:00Z"),
+        S.CrmCommissioning(commissioning_ref="COM-20931-D", site_ref="SITE-UK-20931", asset_reg_id="REG-55104",
+                           hems_home_uid=HOME, hems_asset_key=BAT, chargepoint_ref=None, scanned_serial="HS10-2402-1190",
+                           verified_by="installer:BrightSpark/J.Okafor", verified_at="2026-03-14T11:41:00Z"),
     ])
 
     s.add(S.HemsHome(home_uid=HOME, utc_offset_min=0, fleet="UK-South"))
@@ -112,7 +142,10 @@ def seed_static(s: Session) -> None:
                     sw_ver="2.8.3", link_state="UP", serial="VB11-23-004512"),
         S.HemsAsset(asset_key=EV, home_uid=HOME, asset_class="ev", vendor="Kestrel", hw_model="ETOURER62",
                     sw_ver="unknown", link_state="UP", serial="KM62-0098812"),
+        S.HemsAsset(asset_key=BAT, home_uid=HOME, asset_class="bat", vendor="HelioHEMS", hw_model="STORE10",
+                    sw_ver="1.6.0", link_state="UP", serial="HS10-2402-1190"),
     ])
+    _market_prices(s)
 
     s.add_all([
         S.ChgChargepoint(chargepoint_ref=CP, vendor_name="Voltara", model_name="BiDi 11", fw_rev="2.8.3",
@@ -155,15 +188,54 @@ def seed_static(s: Session) -> None:
                     body=("Voltara has reported that some BiDi 11 units on firmware 2.8.x may reject V2H sessions "
                           "shortly after the vehicle wakes from sleep. Status: under investigation by Voltara. "
                           "Matching this pattern does not confirm the cause; only Voltara's logs can.")),
+        S.KbArticle(article_code="KB-GRID-005", title="Why your battery paused: grid steering by your supplier",
+                    audience="public", doc_type="troubleshooting", tags="grid,steering,battery,paused,congestion,tariff",
+                    body=("When the local grid is congested, the grid operator can ask your energy supplier to limit "
+                          "controllable devices such as a home battery or wallbox for a short time. Your Helio Hub follows "
+                          "that signal and resumes normal operation when it ends. This is not a fault. Under a grid-steering "
+                          "agreement you are compensated, usually through lower network charges.")),
+        S.KbArticle(article_code="KB-TAR-011", title="Charging cheaper on a dynamic tariff",
+                    audience="public", doc_type="troubleshooting", tags="tariff,dynamic,price,cost,saving,smart charging,cheap",
+                    body=("On a dynamic tariff the price changes every hour with the wholesale market. Evening hours "
+                          "(about 17:00-20:00) are usually the most expensive and night hours the cheapest. Turn on smart "
+                          "charging in the Helio app (Charging > Smart charging) and set your departure time; the Hub then "
+                          "charges in the cheapest hours that still have the car ready on time.")),
     ])
 
 
+# Synthetic day-ahead prices (EUR/MWh) by local hour: cheap nights, an evening peak at 18:00.
+PRICE_SHAPE = [78, 70, 64, 61, 63, 72, 95, 128, 140, 118, 102, 95, 90, 88, 92, 105, 142, 205, 248, 231, 184, 150, 118, 96]
+DAY_OFFSET = {3: -6, 4: 4, 5: -2, 6: 8, 7: 0, 8: -4, 9: 6, 10: 2}
+
+
+def _market_prices(s: Session) -> None:
+    for day, off in DAY_OFFSET.items():
+        for h, base in enumerate(PRICE_SHAPE):
+            s.add(S.MktDayAheadPrice(price_ref=f"DA-SYN1-202611{day:02d}-{h:02d}", bidding_zone="SYN-1 (synthetic)",
+                                     delivery_hour=f"2026-11-{day:02d} {h:02d}:00", tz_name="Europe/London",
+                                     price_eur_mwh=float(base + off)))
+
+
 # ------------------------------------------------------------ scenario data
-def _common(s: Session, soc: float, outcome: str) -> None:
-    s.add(S.HemsSchedule(sched_uid="hs_5521", home_uid=HOME, asset_key=EVSE, begins_epoch=ep(18, 55),
-                         ends_epoch=ep(22, 0), mode="V2H_DISCHARGE", requested_watts=3000, active=1))
-    s.add(S.HemsCommand(cmd_uid="hc_90017", home_uid=HOME, asset_key=EVSE, issued_epoch=ep(19, 0),
-                        cmd="DISCHARGE_REQUEST", requested_watts=3000, outcome=outcome))
+def _contract(s: Session, dynamic: bool = False) -> None:
+    if dynamic:
+        s.add(S.SupContract(contract_no=CONTRACT, supply_point_ref=SUPPLY_POINT, tariff_kind="DYN",
+                            fixed_rate_ct_kwh=None, dyn_markup_ct_kwh=14.0, steering_agreement=False,
+                            steering_compensation=None, valid_from="2026-10-01"))
+    else:
+        s.add(S.SupContract(contract_no=CONTRACT, supply_point_ref=SUPPLY_POINT, tariff_kind="FIX",
+                            fixed_rate_ct_kwh=32.0, dyn_markup_ct_kwh=None, steering_agreement=True,
+                            steering_compensation="network charge reduced by EUR 110 per year in return for grid steering",
+                            valid_from="2026-03-14"))
+
+
+def _reserve(s: Session, pct: float = 40.0) -> None:
+    s.add(S.HemsConstraint(constraint_uid="hk_301", home_uid=HOME, asset_key=EV, kind="MIN_SOC_RESERVE",
+                           threshold_pct=pct, effective_epoch=ep(11, 40, day=14, month=3)))
+
+
+def _house(s: Session, soc: float) -> None:
+    """Household telemetry and audit history shared by every scenario."""
     for i, (h, m) in enumerate([(18, 30), (18, 45), (19, 0), (19, 15), (19, 30), (19, 45), (20, 0)]):
         s.add(S.HemsTelemetry(sample_uid=f"ht_soc_{i}", home_uid=HOME, asset_key=EV,
                               ts_epoch_ms=ep(h, m) * 1000, channel="ev_soc_pct", reading=soc))
@@ -172,11 +244,6 @@ def _common(s: Session, soc: float, outcome: str) -> None:
                               reading=[1650, 2100, 2480, 2620, 2390, 2210, 1980][i]))
         s.add(S.HemsTelemetry(sample_uid=f"ht_pv_{i}", home_uid=HOME, asset_key=GW,
                               ts_epoch_ms=ep(h, m) * 1000, channel="pv_w", reading=0))
-    for i, m in enumerate(range(50, 95, 5)):
-        h, mm = 18 + m // 60, m % 60
-        s.add(S.ChgMeterValue(mv_ref=f"mv_{i:03d}", chargepoint_ref=CP, at=iso_off(h, mm), power_kw=0.0))
-    s.add(S.HemsEvent(event_uid="he_2001", home_uid=HOME, asset_key=EVSE, ts_epoch=ep(18, 55),
-                      code="SCHED_ACTIVE", level="I", text="V2H discharge window started (requested 3000 W)."))
     # Audit history shared by every scenario.
     s.add(S.AuditConfigLog(audit_seq=1, home_uid=HOME, asset_key=EV, logged_at="2026-03-14T11:40:00Z",
                            param_path="v2h.reserve.min_soc_pct", prev_val="", new_val="40",
@@ -184,6 +251,67 @@ def _common(s: Session, soc: float, outcome: str) -> None:
     s.add(S.AuditConfigLog(audit_seq=2, home_uid=HOME, asset_key=EVSE, logged_at="2026-11-02T20:14:00Z",
                            param_path="v2h.schedule.window_end", prev_val="21:00", new_val="22:00",
                            changed_by="homeowner_app", client_id="helio-app-ios"))
+
+
+def _common(s: Session, soc: float, outcome: str) -> None:
+    """V2H evening used by scenarios A-C."""
+    _house(s, soc)
+    _contract(s)
+    s.add(S.HemsSchedule(sched_uid="hs_5521", home_uid=HOME, asset_key=EVSE, begins_epoch=ep(18, 55),
+                         ends_epoch=ep(22, 0), mode="V2H_DISCHARGE", requested_watts=3000, active=1))
+    s.add(S.HemsCommand(cmd_uid="hc_90017", home_uid=HOME, asset_key=EVSE, issued_epoch=ep(19, 0),
+                        cmd="DISCHARGE_REQUEST", requested_watts=3000, outcome=outcome))
+    for i, m in enumerate(range(50, 95, 5)):
+        h, mm = 18 + m // 60, m % 60
+        s.add(S.ChgMeterValue(mv_ref=f"mv_{i:03d}", chargepoint_ref=CP, at=iso_off(h, mm), power_kw=0.0))
+    s.add(S.HemsEvent(event_uid="he_2001", home_uid=HOME, asset_key=EVSE, ts_epoch=ep(18, 55),
+                      code="SCHED_ACTIVE", level="I", text="V2H discharge window started (requested 3000 W)."))
+
+
+def _grid_steering(s: Session) -> None:
+    """Scenario D: supplier applies a grid-operator steering request to the home battery."""
+    _house(s, soc=68.0)
+    _reserve(s)
+    _contract(s)
+    s.add(S.HemsSchedule(sched_uid="hs_7101", home_uid=HOME, asset_key=BAT, begins_epoch=ep(17, 0),
+                         ends_epoch=ep(22, 0), mode="BATTERY_DISCHARGE", requested_watts=2500, active=1))
+    for i in range(17):  # 17:00 .. 21:00 every 15 min
+        t = ep(17, 0) + i * 900
+        paused = ep(18, 0) <= t < ep(19, 0)
+        s.add(S.HemsTelemetry(sample_uid=f"ht_bat_{i:02d}", home_uid=HOME, asset_key=BAT, ts_epoch_ms=t * 1000,
+                              channel="bat_w", reading=0.0 if paused else 2500.0))
+    s.add_all([
+        S.HemsEvent(event_uid="he_3001", home_uid=HOME, asset_key=BAT, ts_epoch=ep(18, 0), code="GRID_STEERING_APPLIED",
+                    level="I", text="External grid-steering signal from supplier: battery discharge limited to 0 W until 19:00."),
+        S.HemsEvent(event_uid="he_3002", home_uid=HOME, asset_key=BAT, ts_epoch=ep(19, 0), code="GRID_STEERING_ENDED",
+                    level="I", text="Grid-steering limit lifted; battery discharge resumed at 2500 W."),
+    ])
+    s.add(S.SupSteeringEvent(steering_ref="GSR-44871", contract_no=CONTRACT, local_start="2026-11-09 18:00",
+                             local_end="2026-11-09 19:00", tz_name="Europe/London", controllable_unit="HOME_BATTERY",
+                             max_kw=0.0, reason="grid congestion", grid_operator="WestGrid Networks (fictional)"))
+
+
+def _peak_charging(s: Session) -> None:
+    """Scenario E: dynamic tariff, smart charging off, EV charged straight away at the evening peak."""
+    _house(s, soc=78.0)
+    _reserve(s)
+    _contract(s, dynamic=True)
+    nights = [  # (schedule uid, session ref, plug-in, charge start, charge end, departure)
+        ("hs_6101", "VS-78001", (18, 25, 6), (18, 30, 6), (20, 30, 6), (7, 0, 7)),
+        ("hs_6102", "VS-78002", (17, 55, 9), (18, 0, 9), (21, 0, 9), (7, 0, 10)),
+    ]
+    for sched, sess, plug, start, end, dep in nights:
+        s.add(S.HemsSchedule(sched_uid=sched, home_uid=HOME, asset_key=EVSE, begins_epoch=ep(plug[0], plug[1], day=plug[2]),
+                             ends_epoch=ep(dep[0], dep[1], day=dep[2]), mode="SMART_CHARGE", requested_watts=7400, active=0))
+        s.add(S.ChgSession(session_ref=sess, chargepoint_ref=CP, started_at=iso_off(*start), ended_at=iso_off(*end),
+                           kind="CHARGE", session_state="Completed", err=None, err_detail_exposed=True))
+        t, stop = ep(start[0], start[1], day=start[2]), ep(end[0], end[1], day=end[2])
+        i = 0
+        while t < stop:  # one meter value per 15 min, vendor sign: - = charging
+            at = datetime.fromtimestamp(t, tz=timezone.utc)
+            s.add(S.ChgMeterValue(mv_ref=f"mv_{sess[-3:]}_{i:02d}", chargepoint_ref=CP,
+                                  at=iso_off(at.hour, at.minute, day=at.day), power_kw=-7.4))
+            t, i = t + 900, i + 1
 
 
 def seed_scenario(s: Session, code: str) -> None:
@@ -232,3 +360,9 @@ def seed_scenario(s: Session, code: str) -> None:
         s.add(S.AuditConfigLog(audit_seq=3, home_uid=HOME, asset_key=EV, logged_at="2026-11-09T18:47:12Z",
                                param_path="v2h.reserve.min_soc_pct", prev_val="40", new_val="60",
                                changed_by="api_client", client_id="cli-7d2e"))
+
+    elif code == "D":
+        _grid_steering(s)
+
+    elif code == "E":
+        _peak_charging(s)
