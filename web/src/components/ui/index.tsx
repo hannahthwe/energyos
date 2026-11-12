@@ -22,11 +22,12 @@ export function CardBody({ className, ...p }: React.HTMLAttributes<HTMLDivElemen
   return <div className={cn("p-4", className)} {...p} />;
 }
 
-type BtnVariant = "primary" | "secondary" | "ghost" | "teal";
+type BtnVariant = "primary" | "secondary" | "ghost" | "sky" | "peach";
 export function Button({ variant = "primary", className, ...p }: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: BtnVariant }) {
   const v: Record<BtnVariant, string> = {
     primary: "bg-navy text-white hover:bg-navy-700",
-    teal: "bg-teal text-white hover:bg-teal-600",
+    sky: "bg-sky text-white hover:bg-sky-600",
+    peach: "rounded-full bg-peach text-peach-900 hover:bg-peach-600",
     secondary: "border border-slate-200 bg-white text-navy hover:bg-slate-50",
     ghost: "text-navy hover:bg-slate-100",
   };
@@ -38,11 +39,11 @@ export function Button({ variant = "primary", className, ...p }: React.ButtonHTM
   );
 }
 
-type Tone = "slate" | "teal" | "amber" | "red" | "navy" | "violet";
+type Tone = "slate" | "sky" | "amber" | "red" | "navy" | "violet";
 export function Badge({ tone = "slate", className, ...p }: React.HTMLAttributes<HTMLSpanElement> & { tone?: Tone }) {
   const t: Record<Tone, string> = {
     slate: "bg-slate-100 text-slate-600",
-    teal: "bg-teal-50 text-teal-700 ring-1 ring-teal-100",
+    sky: "bg-sky-50 text-sky-700 ring-1 ring-sky-100",
     amber: "bg-amber-50 text-amber-700 ring-1 ring-amber-100",
     red: "bg-red-50 text-red-700 ring-1 ring-red-100",
     navy: "bg-navy-50 text-navy ring-1 ring-navy-100",
@@ -55,8 +56,8 @@ export function SyntheticLabel() {
   return <Badge tone="amber" className="uppercase tracking-wide">Synthetic demo data</Badge>;
 }
 
-export const statusTone: Record<string, Tone> = { New: "teal", Investigating: "amber", Escalated: "red", Resolved: "slate" };
-export const visTone: Record<string, Tone> = { homeowner_safe: "teal", support_internal: "navy", restricted: "red" };
+export const statusTone: Record<string, Tone> = { New: "sky", Investigating: "amber", Escalated: "red", Resolved: "slate" };
+export const visTone: Record<string, Tone> = { homeowner_safe: "sky", support_internal: "navy", restricted: "red" };
 export const visLabel: Record<string, string> = { homeowner_safe: "homeowner-safe", support_internal: "internal", restricted: "restricted" };
 
 export function Spinner({ className }: { className?: string }) {

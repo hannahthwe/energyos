@@ -38,7 +38,7 @@ struct AssistantView: View {
     private var intro: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Image(systemName: "sparkles").foregroundColor(Theme.teal)
+                Image(systemName: "sparkles").foregroundColor(Theme.sky)
                 Text("Helio Assistant").font(.headline).foregroundColor(Theme.navy)
                 Spacer()
                 SyntheticBadge()
@@ -51,7 +51,7 @@ struct AssistantView: View {
                         Task { await app.ask(s) }
                     } label: {
                         Text(s).font(.subheadline).frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(12).background(Theme.tealSoft).foregroundColor(Theme.navy)
+                            .padding(12).background(Theme.skySoft).foregroundColor(Theme.navy)
                             .clipShape(RoundedRectangle(cornerRadius: 10))
                     }
                     .disabled(app.isThinking)
@@ -86,7 +86,7 @@ struct AssistantView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 12))
                 .onSubmit(send)
             Button(action: send) {
-                Image(systemName: "arrow.up.circle.fill").font(.system(size: 32)).foregroundColor(Theme.teal)
+                Image(systemName: "arrow.up.circle.fill").font(.system(size: 32)).foregroundColor(Theme.sky)
             }
             .disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty || app.isThinking)
         }
@@ -120,7 +120,7 @@ struct DiagnosisCard: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top) {
                 Image(systemName: d.supportRecommended ? "exclamationmark.circle.fill" : "checkmark.seal.fill")
-                    .foregroundColor(d.supportRecommended ? Theme.amber : Theme.teal)
+                    .foregroundColor(d.supportRecommended ? Theme.amber : Theme.sky)
                     .font(.title3)
                 Text(d.headline).font(.headline).foregroundColor(Theme.navy)
             }
@@ -134,7 +134,7 @@ struct DiagnosisCard: View {
                     SectionLabel(text: "Last night", icon: "list.bullet.rectangle")
                     ForEach(d.timeline) { t in
                         HStack(alignment: .top, spacing: 10) {
-                            Text(t.time).font(.caption.monospacedDigit().weight(.semibold)).foregroundColor(Theme.teal)
+                            Text(t.time).font(.caption.monospacedDigit().weight(.semibold)).foregroundColor(Theme.sky)
                                 .frame(width: 42, alignment: .leading)
                             Text(t.label).font(.caption).foregroundColor(Theme.navy)
                         }
@@ -170,9 +170,11 @@ struct DiagnosisCard: View {
                     .font(.subheadline.weight(.semibold))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 6)
+                    .foregroundStyle(d.supportRecommended ? Theme.peachInk : Color.white)
             }
             .buttonStyle(.borderedProminent)
-            .tint(d.supportRecommended ? Theme.navy : Theme.muted)
+            .buttonBorderShape(.capsule)
+            .tint(d.supportRecommended ? Theme.peach : Theme.muted)
         }
         .card()
     }
@@ -184,7 +186,7 @@ struct DiagnosisCard: View {
                 SectionLabel(text: title, icon: icon)
                 ForEach(Array(items.enumerated()), id: \.offset) { i, text in
                     HStack(alignment: .top, spacing: 6) {
-                        Text(numbered ? "\(i + 1)." : "•").font(.subheadline).foregroundColor(Theme.teal)
+                        Text(numbered ? "\(i + 1)." : "•").font(.subheadline).foregroundColor(Theme.sky)
                         Text(text).font(.subheadline).foregroundColor(Theme.navy).fixedSize(horizontal: false, vertical: true)
                     }
                 }

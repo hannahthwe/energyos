@@ -3,7 +3,7 @@
 // what the homeowner may see.
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { Activity, BatteryCharging, ChevronRight, Home, LifeBuoy, Lock, PiggyBank, Send, ShieldCheck, X, Zap } from "lucide-react";
+import { BatteryCharging, ChevronRight, Home, LifeBuoy, Lock, PiggyBank, Send, ShieldCheck, X, Zap, HeartHandshake } from "lucide-react";
 import { api, type DataConsent, type DemoState, type Evidence } from "@/lib/api";
 import { useDemoMode } from "@/components/Layout";
 import { Button, Spinner, SyntheticLabel } from "@/components/ui";
@@ -147,15 +147,15 @@ export default function HomeApp() {
             ))}
           </select>
         )}
-        <Link to="/support" className="font-medium text-teal-700 underline">Open support console →</Link>
+        <Link to="/support" className="font-medium text-sky-700 underline">Open support console →</Link>
       </div>
 
-      <div className="relative mx-auto flex h-[780px] max-w-[400px] flex-col overflow-hidden rounded-[2.2rem] border-[10px] border-navy bg-slate-50 shadow-xl">
+      <div className="relative mx-auto flex h-[780px] max-w-[400px] flex-col overflow-hidden rounded-[2.2rem] border-[10px] border-navy bg-cream shadow-xl">
         <header className="flex items-center gap-2 bg-navy px-4 py-3 text-white">
-          <div className="grid h-7 w-7 place-items-center rounded-lg bg-teal"><Activity className="h-4 w-4" /></div>
+          <div className="grid h-7 w-7 place-items-center rounded-full bg-sky-300"><HeartHandshake className="h-4 w-4" /></div>
           <div className="leading-tight">
             <div className="text-sm font-semibold">HelioHEMS Home</div>
-            <div className="text-[11px] text-slate-300">{ov ? `Hi ${ov.customer_first_name}` : "Connecting…"}</div>
+            <div className="text-[11px] text-slate-300">{ov ? <>Hi {ov.customer_first_name} <span className="ml-0.5 inline-block h-1.5 w-1.5 rounded-full bg-peach align-middle" /></> : "Connecting…"}</div>
           </div>
           <button onClick={openPrivacy} className="ml-auto rounded-md p-1 text-slate-300 hover:bg-white/10 hover:text-white" aria-label="Data & privacy" title="Data & privacy">
             <Lock className="h-4 w-4" />
@@ -178,7 +178,7 @@ export default function HomeApp() {
             Ask the assistant about your car, charger or home energy. Answers come from your home's own records.
             <div className="mt-2 flex flex-wrap gap-1.5">
               {SUGGESTIONS.map((s) => (
-                <button key={s} disabled={busy} onClick={() => ask(s)} className="rounded-full border border-slate-200 px-2 py-0.5 text-[11px] text-slate-600 hover:border-teal hover:text-teal-700">
+                <button key={s} disabled={busy} onClick={() => ask(s)} className="rounded-full border border-slate-200 px-2 py-0.5 text-[11px] text-slate-600 hover:border-sky hover:text-sky-700">
                   {s}
                 </button>
               ))}
@@ -187,7 +187,7 @@ export default function HomeApp() {
 
           {turns.map((t, i) =>
             t.kind === "q" ? (
-              <div key={i} className="ml-auto max-w-[85%] rounded-2xl rounded-br-sm bg-teal px-3 py-2 text-sm text-white">{t.text}</div>
+              <div key={i} className="ml-auto max-w-[85%] rounded-2xl rounded-br-sm bg-sky-100 px-3 py-2 text-sm text-navy">{t.text}</div>
             ) : t.kind === "err" ? (
               <div key={i} className="rounded-xl bg-red-50 p-3 text-xs text-red-700">{t.text}</div>
             ) : (
@@ -211,9 +211,9 @@ export default function HomeApp() {
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Type your question…"
-            className="flex-1 rounded-full border border-slate-200 px-3 py-2 text-sm outline-none focus:border-teal"
+            className="flex-1 rounded-full border border-slate-200 px-3 py-2 text-sm outline-none focus:border-sky"
           />
-          <Button type="submit" variant="teal" disabled={busy || !q.trim()} aria-label="Send">
+          <Button type="submit" variant="sky" disabled={busy || !q.trim()} aria-label="Send">
             <Send className="h-4 w-4" />
           </Button>
         </form>
@@ -221,7 +221,7 @@ export default function HomeApp() {
         {preview && (
           <div className="absolute inset-0 z-10 flex flex-col bg-white">
             <div className="flex items-center gap-2 border-b p-3 text-sm font-semibold text-navy">
-              <ShieldCheck className="h-4 w-4 text-teal" /> Share with HelioHEMS support?
+              <ShieldCheck className="h-4 w-4 text-sky" /> Share with HelioHEMS support?
             </div>
             <div className="flex-1 space-y-3 overflow-y-auto p-3 text-xs text-slate-700">
               <p className="font-medium">{preview.summary}</p>
@@ -242,7 +242,7 @@ export default function HomeApp() {
             </div>
             <div className="flex gap-2 border-t p-3">
               <Button variant="secondary" className="flex-1" onClick={() => setPreview(null)}>Cancel</Button>
-              <Button variant="teal" className="flex-1" disabled={!approved} onClick={share}>Share and request support</Button>
+              <Button variant="peach" className="flex-1" disabled={!approved} onClick={share}>Share and request support</Button>
             </div>
           </div>
         )}
@@ -258,7 +258,7 @@ function SavingsCard({ s, onPrivacy }: { s: Savings; onPrivacy: () => void }) {
   return (
     <div className="rounded-xl bg-white p-3 text-xs text-slate-700 shadow-sm">
       <div className="mb-1 flex items-center gap-2 text-sm font-semibold text-navy">
-        <PiggyBank className="h-4 w-4 text-teal" /> Savings · last 7 days
+        <PiggyBank className="h-4 w-4 text-sky" /> Savings · last 7 days
         {s.contract_type && <span className="ml-auto rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500">{s.contract_type} price</span>}
       </div>
       {s.contract_type && s.sessions.length > 0 ? (
@@ -277,7 +277,7 @@ function SavingsCard({ s, onPrivacy }: { s: Savings; onPrivacy: () => void }) {
       ) : null}
       <p className="mt-2">{s.tip}</p>
       {s.unavailable_sources.length > 0 && (
-        <button onClick={onPrivacy} className="mt-1 text-[11px] font-medium text-teal-700 underline">Open Data &amp; privacy</button>
+        <button onClick={onPrivacy} className="mt-1 text-[11px] font-medium text-sky-700 underline">Open Data &amp; privacy</button>
       )}
     </div>
   );
@@ -285,9 +285,9 @@ function SavingsCard({ s, onPrivacy }: { s: Savings; onPrivacy: () => void }) {
 
 function Stat({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
   return (
-    <div className={cn("rounded-lg p-2", accent ? "bg-teal/10" : "bg-slate-50")}>
+    <div className={cn("rounded-lg p-2", accent ? "bg-sky/10" : "bg-slate-50")}>
       <div className="text-[10px] text-slate-500">{label}</div>
-      <div className={cn("text-sm font-semibold", accent ? "text-teal-700" : "text-navy")}>{value}</div>
+      <div className={cn("text-sm font-semibold", accent ? "text-sky-700" : "text-navy")}>{value}</div>
     </div>
   );
 }
@@ -296,7 +296,7 @@ function PrivacyScreen({ rows, onToggle, onClose }: { rows: DataConsent[]; onTog
   return (
     <div className="absolute inset-0 z-20 flex flex-col bg-white">
       <div className="flex items-center gap-2 border-b p-3 text-sm font-semibold text-navy">
-        <Lock className="h-4 w-4 text-teal" /> Data &amp; privacy
+        <Lock className="h-4 w-4 text-sky" /> Data &amp; privacy
         <button onClick={onClose} className="ml-auto rounded p-1 text-slate-400 hover:bg-slate-100" aria-label="Close"><X className="h-4 w-4" /></button>
       </div>
       <div className="flex-1 space-y-2 overflow-y-auto p-3 text-xs text-slate-700">
@@ -318,7 +318,7 @@ function PrivacyScreen({ rows, onToggle, onClose }: { rows: DataConsent[]; onTog
                 aria-checked={c.active}
                 aria-label={`${c.label} sharing`}
                 onClick={() => onToggle(c)}
-                className={cn("relative mt-1 h-5 w-9 shrink-0 rounded-full transition", c.active ? "bg-teal" : "bg-slate-300")}
+                className={cn("relative mt-1 h-5 w-9 shrink-0 rounded-full transition", c.active ? "bg-sky" : "bg-slate-300")}
               >
                 <span className={cn("absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition", c.active ? "left-[18px]" : "left-0.5")} />
               </button>
@@ -338,7 +338,7 @@ function PrivacyScreen({ rows, onToggle, onClose }: { rows: DataConsent[]; onTog
 function Tile({ icon, label, value, sub, warn }: { icon: React.ReactNode; label: string; value: string; sub: string; warn?: boolean }) {
   return (
     <div className="rounded-xl bg-white p-2 shadow-sm">
-      <div className={cn("mx-auto mb-1 grid h-7 w-7 place-items-center rounded-full", warn ? "bg-amber-100 text-amber-700" : "bg-teal/10 text-teal-700")}>{icon}</div>
+      <div className={cn("mx-auto mb-1 grid h-7 w-7 place-items-center rounded-full", warn ? "bg-amber-100 text-amber-700" : "bg-sky/10 text-sky-700")}>{icon}</div>
       <div className="text-slate-500">{label}</div>
       <div className="text-sm font-semibold text-navy">{value}</div>
       <div className="text-[10px] text-slate-400">{sub}</div>
@@ -363,12 +363,12 @@ function AnswerCard({ a, caseId, onSupport }: { a: HomeAnswer; caseId?: string; 
         </details>
       )}
       {caseId ? (
-        <div className="rounded-lg bg-teal/10 p-2 text-teal-800">
+        <div className="rounded-lg bg-sky/10 p-2 text-sky-800">
           Support request {caseId} sent. <Link to={`/support/cases/${caseId}`} className="underline">View it in the support console</Link>
         </div>
       ) : (
         a.support_recommended && (
-          <Button variant="teal" className="w-full" onClick={onSupport}>
+          <Button variant="peach" className="w-full" onClick={onSupport}>
             <LifeBuoy className="h-4 w-4" /> Request support
           </Button>
         )

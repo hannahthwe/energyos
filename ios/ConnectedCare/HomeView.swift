@@ -63,7 +63,7 @@ struct HomeView: View {
                 Text("\(Int(o.ev.socPct ?? 0))% charged").font(.title2.weight(.bold)).foregroundColor(Theme.navy)
                 Text("Minimum reserve \(Int(o.ev.reservePct ?? 0))%").font(.subheadline).foregroundColor(Theme.muted)
                 Label(o.ev.pluggedIn ? "Plugged in" : "Not plugged in", systemImage: "powerplug.fill")
-                    .font(.caption.weight(.medium)).foregroundColor(Theme.teal)
+                    .font(.caption.weight(.medium)).foregroundColor(Theme.sky)
             }
             Spacer(minLength: 0)
         }
@@ -74,7 +74,7 @@ struct HomeView: View {
         VStack(alignment: .leading, spacing: 10) {
             SectionLabel(text: "Vehicle-to-Home", icon: "house.and.flag.fill")
             HStack {
-                Circle().fill(o.v2h.available ? Theme.teal : Theme.amber).frame(width: 10, height: 10)
+                Circle().fill(o.v2h.available ? Theme.sky : Theme.amber).frame(width: 10, height: 10)
                 Text(o.v2h.available ? "Available" : "Not available").font(.headline).foregroundColor(Theme.navy)
                 Spacer()
                 if let w = o.v2h.nextWindow {
@@ -91,8 +91,8 @@ struct HomeView: View {
                         .font(.subheadline.weight(.semibold))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 10)
-                        .background(Theme.tealSoft)
-                        .foregroundColor(Theme.teal)
+                        .background(Theme.skySoft)
+                        .foregroundColor(Theme.sky)
                         .clipShape(RoundedRectangle(cornerRadius: 10))
                 }
             }
@@ -104,7 +104,7 @@ struct HomeView: View {
         VStack(alignment: .leading, spacing: 8) {
             SectionLabel(text: "Charger", icon: "bolt.car.fill")
             Text(o.charger.status.capitalized).font(.headline)
-                .foregroundColor(o.charger.status == "online" ? Theme.teal : Theme.red)
+                .foregroundColor(o.charger.status == "online" ? Theme.sky : Theme.red)
             Text(o.charger.model).font(.caption).foregroundColor(Theme.muted)
         }
         .card()
@@ -124,9 +124,9 @@ struct HomeView: View {
             SectionLabel(text: "Household use last evening", icon: "chart.xyaxis.line")
             Chart(o.home.loadSeries) { p in
                 AreaMark(x: .value("Time", p.t), y: .value("kW", p.kw))
-                    .foregroundStyle(Theme.teal.opacity(0.18))
+                    .foregroundStyle(Theme.sky.opacity(0.18))
                 LineMark(x: .value("Time", p.t), y: .value("kW", p.kw))
-                    .foregroundStyle(Theme.teal)
+                    .foregroundStyle(Theme.sky)
             }
             .frame(height: 120)
         }
@@ -148,9 +148,11 @@ struct HomeView: View {
                         } label: {
                             Label("Request support", systemImage: "person.crop.circle.badge.questionmark")
                                 .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(Theme.peachInk)
                         }
                         .buttonStyle(.borderedProminent)
-                        .tint(Theme.navy)
+                        .buttonBorderShape(.capsule)
+                        .tint(Theme.peach)
                     }
                 }
             }
@@ -168,7 +170,7 @@ struct SocRing: View {
             Circle().stroke(Theme.border, lineWidth: 12)
             Circle()
                 .trim(from: 0, to: CGFloat(min(soc, 100) / 100))
-                .stroke(soc > reserve ? Theme.teal : Theme.amber, style: StrokeStyle(lineWidth: 12, lineCap: .round))
+                .stroke(soc > reserve ? Theme.sky : Theme.amber, style: StrokeStyle(lineWidth: 12, lineCap: .round))
                 .rotationEffect(.degrees(-90))
             // Reserve marker
             Rectangle()
@@ -268,11 +270,11 @@ struct SavingsCard: View {
     private func stat(_ label: String, _ value: String, accent: Bool) -> some View {
         VStack(spacing: 2) {
             Text(label).font(.caption2).foregroundColor(Theme.muted)
-            Text(value).font(.headline).foregroundColor(accent ? Theme.teal : Theme.navy)
+            Text(value).font(.headline).foregroundColor(accent ? Theme.sky : Theme.navy)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 8)
-        .background(accent ? Theme.tealSoft : Theme.page)
+        .background(accent ? Theme.skySoft : Theme.page)
         .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 }
@@ -292,7 +294,7 @@ struct PrivacyView: View {
                             Toggle(isOn: Binding(get: { c.active }, set: { on in Task { await app.setConsent(c, on: on) } })) {
                                 row(c)
                             }
-                            .tint(Theme.teal)
+                            .tint(Theme.sky)
                         } else {
                             HStack {
                                 row(c)

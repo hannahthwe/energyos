@@ -38,13 +38,13 @@ export default function Queue() {
   return (
     <div className="grid gap-5 lg:grid-cols-[420px_1fr]">
       <Card className="h-fit">
-        <CardHeader title={`Case queue (${cases.length})`} icon={<Inbox className="h-4 w-4 text-teal" />} />
+        <CardHeader title={`Case queue (${cases.length})`} icon={<Inbox className="h-4 w-4 text-sky" />} />
         <ul className="divide-y divide-slate-100">
           {cases.map((c) => (
             <li key={c.case_id}>
               <button
                 onClick={() => setSelected(c.case_id)}
-                className={cn("w-full px-4 py-3 text-left transition hover:bg-slate-50", selected === c.case_id && "bg-teal-50/60")}
+                className={cn("w-full px-4 py-3 text-left transition hover:bg-slate-50", selected === c.case_id && "bg-sky-50/60")}
               >
                 <div className="flex items-center gap-2">
                   <span className="font-mono text-xs text-slate-500">{c.case_id}</span>
@@ -88,14 +88,14 @@ function CasePreview({ d }: { d: CaseDetail }) {
           </div>
           {d.diagnosis && (
             <Link to={`/support/cases/${d.case.case_id}`}>
-              <Button variant="teal">
+              <Button variant="sky">
                 Open AI investigation <ArrowRight className="h-4 w-4" />
               </Button>
             </Link>
           )}
         </CardBody>
-        <div className="border-t border-slate-100 bg-gradient-to-r from-teal-50 to-white px-4 py-3">
-          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-teal-700">
+        <div className="border-t border-slate-100 bg-gradient-to-r from-sky-50 to-white px-4 py-3">
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-sky-700">
             <Sparkles className="h-3.5 w-3.5" /> AI diagnostic summary
           </div>
           <p className="mt-1 text-sm">{d.case.diagnostic_summary}</p>
@@ -104,7 +104,7 @@ function CasePreview({ d }: { d: CaseDetail }) {
 
       <div className="grid gap-5 xl:grid-cols-2">
         <Card>
-          <CardHeader title="Customer (CRM)" icon={<User className="h-4 w-4 text-teal" />} right={<Badge tone="navy">{d.customer.crm_ref}</Badge>} />
+          <CardHeader title="Customer (CRM)" icon={<User className="h-4 w-4 text-sky" />} right={<Badge tone="navy">{d.customer.crm_ref}</Badge>} />
           <CardBody className="grid grid-cols-2 gap-3 text-sm">
             <Field k="Name" v={d.customer.name} />
             <Field k="Customer ID" v={d.customer.customer_id} mono />
@@ -114,7 +114,7 @@ function CasePreview({ d }: { d: CaseDetail }) {
           </CardBody>
         </Card>
         <Card>
-          <CardHeader title="Installation" icon={<Building2 className="h-4 w-4 text-teal" />} right={<Badge tone="navy">{d.installation.crm_ref}</Badge>} />
+          <CardHeader title="Installation" icon={<Building2 className="h-4 w-4 text-sky" />} right={<Badge tone="navy">{d.installation.crm_ref}</Badge>} />
           <CardBody className="grid grid-cols-2 gap-3 text-sm">
             <Field k="Installation ID" v={d.installation.installation_id} mono />
             <Field k="Status" v={d.installation.installation_status} />
@@ -127,12 +127,12 @@ function CasePreview({ d }: { d: CaseDetail }) {
       </div>
 
       <Card>
-        <CardHeader title="Registered devices" icon={<Plug className="h-4 w-4 text-teal" />} />
+        <CardHeader title="Registered devices" icon={<Plug className="h-4 w-4 text-sky" />} />
         <DeviceTable devices={d.devices} />
       </Card>
 
       <Card>
-        <CardHeader title="Previous support interactions" icon={<History className="h-4 w-4 text-teal" />} />
+        <CardHeader title="Previous support interactions" icon={<History className="h-4 w-4 text-sky" />} />
         <ul className="divide-y divide-slate-100 text-sm">
           {d.previous_interactions.map((p) => (
             <li key={p.interaction_id} className="px-4 py-3">
@@ -183,7 +183,7 @@ export function DeviceTable({ devices }: { devices: CaseDetail["devices"] }) {
               </td>
               <td className="px-4 py-2 font-mono text-xs">{d.firmware_version}</td>
               <td className="px-4 py-2">
-                <Badge tone={d.connectivity_status === "online" ? "teal" : "red"}>{d.connectivity_status}</Badge>
+                <Badge tone={d.connectivity_status === "online" ? "sky" : "red"}>{d.connectivity_status}</Badge>
               </td>
               <td className="px-4 py-2">
                 <div className="flex flex-wrap gap-1">

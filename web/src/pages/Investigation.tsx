@@ -21,9 +21,9 @@ const AGENT_ICON: Record<string, JSX.Element> = {
   support_resolution: <FileText className="h-4 w-4" />,
   grid_tariff: <TrendingDown className="h-4 w-4" />,
 };
-const SOURCE_TONE: Record<string, "navy" | "teal" | "violet" | "amber" | "slate"> = {
-  hems_backend: "navy", charger_integration: "violet", config_audit: "amber", crm: "teal", knowledge_base: "slate",
-  energy_supplier: "teal", market_data: "slate",
+const SOURCE_TONE: Record<string, "navy" | "sky" | "violet" | "amber" | "slate"> = {
+  hems_backend: "navy", charger_integration: "violet", config_audit: "amber", crm: "sky", knowledge_base: "slate",
+  energy_supplier: "sky", market_data: "slate",
 };
 const SOURCE_SHORT: Record<string, string> = {
   hems_backend: "HEMS", charger_integration: "Charger API", config_audit: "Audit", crm: "CRM", knowledge_base: "KB",
@@ -105,7 +105,7 @@ function SectionTitle({ icon, title, hint }: { icon: JSX.Element; title: string;
   return (
     <div className="mb-2 flex items-baseline gap-2">
       <span className="flex items-center gap-2 text-sm font-semibold text-navy">
-        <span className="text-teal">{icon}</span>
+        <span className="text-sky">{icon}</span>
         {title}
       </span>
       {hint && <span className="text-xs text-slate-400">{hint}</span>}
@@ -131,7 +131,7 @@ function TopBar({ d, reload }: { d: CaseDetail; reload: () => void }) {
         </Badge>
       )}
       {d.diagnosis && (
-        <Badge tone={d.diagnosis.mode === "claude" ? "teal" : "slate"}>
+        <Badge tone={d.diagnosis.mode === "claude" ? "sky" : "slate"}>
           {d.diagnosis.mode === "claude" ? <Bot className="h-3 w-3" /> : <Cpu className="h-3 w-3" />}
           {d.diagnosis.mode === "claude" ? "Claude orchestrated" : "Deterministic orchestrator"}
         </Badge>
@@ -170,7 +170,7 @@ function CustomerStrip({ d }: { d: CaseDetail }) {
           <div className="text-[11px] uppercase tracking-wide text-slate-400">Connectivity</div>
           <div className="mt-0.5 flex flex-wrap gap-1">
             {d.devices.map((x) => (
-              <Badge key={x.device_id} tone={x.connectivity_status === "online" ? "teal" : "red"}>
+              <Badge key={x.device_id} tone={x.connectivity_status === "online" ? "sky" : "red"}>
                 {x.device_type.replace("ev_charger", "charger")}: {x.connectivity_status}
               </Badge>
             ))}
@@ -190,11 +190,11 @@ function DataConsents({ d }: { d: CaseDetail }) {
   if (!rows.length) return null;
   return (
     <Card>
-      <CardHeader title="Homeowner data consents" icon={<Lock className="h-4 w-4 text-teal" />} right={<span className="text-[11px] text-slate-400">sources without consent are reported as unavailable</span>} />
+      <CardHeader title="Homeowner data consents" icon={<Lock className="h-4 w-4 text-sky" />} right={<span className="text-[11px] text-slate-400">sources without consent are reported as unavailable</span>} />
       <div className="flex flex-wrap gap-2 px-4 py-3">
         {rows.map((c) => (
           <span key={c.source_system} title={`${c.source_label} · ${c.legal_basis}${c.expires_at ? ` · expires ${c.expires_at.slice(0, 10)}` : ""}`}>
-            <Badge tone={c.active ? "teal" : "red"}>
+            <Badge tone={c.active ? "sky" : "red"}>
               {c.active ? <CheckCircle2 className="h-3 w-3" /> : <XCircle className="h-3 w-3" />}
               {c.label}: {c.active ? "consented" : "not consented"}
               {c.legal_basis.startsWith("EU Data Act") ? " · Data Act" : c.legal_basis === "contract" ? " · contract" : ""}
@@ -252,11 +252,11 @@ function CitedList({ items, d }: { items: Cited[]; d: CaseDetail }) {
 
 function Findings({ d }: { d: CaseDetail }) {
   const g = d.diagnosis!;
-  const conf = { high: "teal", medium: "amber", low: "red" }[g.confidence.level] as "teal" | "amber" | "red";
+  const conf = { high: "sky", medium: "amber", low: "red" }[g.confidence.level] as "sky" | "amber" | "red";
   return (
     <Card className="overflow-hidden">
       <div className="bg-gradient-to-r from-navy to-navy-700 px-5 py-4 text-white">
-        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-teal-100">
+        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-sky-100">
           <Sparkles className="h-3.5 w-3.5" /> AI diagnosis · incident {fmtTime(g.incident_utc)}
         </div>
         <p className="mt-1 text-base font-medium">{g.headline}</p>
@@ -266,7 +266,7 @@ function Findings({ d }: { d: CaseDetail }) {
         </div>
       </div>
       <div className="grid gap-px bg-slate-100 md:grid-cols-2">
-        <Block icon={<CheckCircle2 className="h-4 w-4" />} title="Observed facts" tone="text-teal-700">
+        <Block icon={<CheckCircle2 className="h-4 w-4" />} title="Observed facts" tone="text-sky-700">
           <CitedList items={g.observed_facts} d={d} />
         </Block>
         <Block icon={<Lightbulb className="h-4 w-4" />} title="Interpretation" tone="text-navy">
@@ -285,7 +285,7 @@ function Findings({ d }: { d: CaseDetail }) {
               <li key={m}>{m}</li>
             ))}
           </ol>
-          <div className={cn("mt-3 rounded-lg px-3 py-2 text-sm", g.escalation.required ? "bg-red-50 text-red-800" : "bg-teal-50 text-teal-800")}>
+          <div className={cn("mt-3 rounded-lg px-3 py-2 text-sm", g.escalation.required ? "bg-red-50 text-red-800" : "bg-sky-50 text-sky-800")}>
             <span className="font-semibold">Escalation: {g.escalation.required ? `required → ${g.escalation.target}` : "not required"}.</span> {g.escalation.reason}
           </div>
         </Block>
@@ -307,19 +307,19 @@ function Block({ icon, title, tone, children }: { icon: JSX.Element; title: stri
 }
 
 function AgentCard({ a }: { a: AgentResult }) {
-  const tone = { finding: "red", no_issue: "teal", inconclusive: "amber", context: "navy", not_run: "slate" }[a.status] as
-    "red" | "teal" | "amber" | "navy" | "slate";
+  const tone = { finding: "red", no_issue: "sky", inconclusive: "amber", context: "navy", not_run: "slate" }[a.status] as
+    "red" | "sky" | "amber" | "navy" | "slate";
   const label = { finding: "finding", no_issue: "no issue found", inconclusive: "inconclusive", context: "context retrieved", not_run: "not used" }[a.status];
   return (
     <Card className={cn("flex flex-col", !a.used && "opacity-70")}>
       <div className="flex items-start gap-2 border-b border-slate-100 px-4 py-3">
-        <div className={cn("grid h-8 w-8 shrink-0 place-items-center rounded-lg", a.used ? "bg-teal-50 text-teal-700" : "bg-slate-100 text-slate-400")}>
+        <div className={cn("grid h-8 w-8 shrink-0 place-items-center rounded-lg", a.used ? "bg-sky-50 text-sky-700" : "bg-slate-100 text-slate-400")}>
           {AGENT_ICON[a.key]}
         </div>
         <div className="min-w-0">
           <div className="text-sm font-semibold leading-tight">{a.name}</div>
           <div className="mt-1 flex flex-wrap gap-1">
-            <Badge tone={a.used ? "teal" : "slate"}>{a.used ? "used" : "not used"}</Badge>
+            <Badge tone={a.used ? "sky" : "slate"}>{a.used ? "used" : "not used"}</Badge>
             {a.used && <Badge tone={tone}>{label}</Badge>}
           </div>
         </div>
@@ -384,7 +384,7 @@ function Timeline({ d }: { d: CaseDetail }) {
   const demoMode = useDemoMode();
   return (
     <Card>
-      <CardHeader title="Unified technical timeline" icon={<Clock className="h-4 w-4 text-teal" />} right={<span className="text-[11px] text-slate-400">UTC · Europe/London = UTC in Nov</span>} />
+      <CardHeader title="Unified technical timeline" icon={<Clock className="h-4 w-4 text-sky" />} right={<span className="text-[11px] text-slate-400">UTC · Europe/London = UTC in Nov</span>} />
       <ol className="relative px-4 py-3">
         {items.map((t, i) => (
           <li key={i} className="relative flex gap-3 pb-3 last:pb-0">
@@ -393,7 +393,7 @@ function Timeline({ d }: { d: CaseDetail }) {
             <span
               className={cn(
                 "relative z-10 mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ring-4 ring-white",
-                t.kind === "session" || t.kind === "config_change" ? "bg-red-500" : t.kind === "event" || t.kind === "steering" ? "bg-amber-500" : "bg-teal",
+                t.kind === "session" || t.kind === "config_change" ? "bg-red-500" : t.kind === "event" || t.kind === "steering" ? "bg-amber-500" : "bg-sky",
               )}
             />
             <div className="min-w-0 flex-1">
@@ -419,7 +419,7 @@ function PowerChart({ d }: { d: CaseDetail }) {
   const data = d.diagnosis!.power_series || [];
   return (
     <Card>
-      <CardHeader title="Expected vs measured charger power" icon={<Zap className="h-4 w-4 text-teal" />} right={<span className="text-[11px] text-slate-400">kW · negative = supplying the home</span>} />
+      <CardHeader title="Expected vs measured charger power" icon={<Zap className="h-4 w-4 text-sky" />} right={<span className="text-[11px] text-slate-400">kW · negative = supplying the home</span>} />
       <CardBody className="h-64">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={data} margin={{ left: -18, right: 8, top: 8 }}>
@@ -429,7 +429,7 @@ function PowerChart({ d }: { d: CaseDetail }) {
             <Tooltip />
             <Legend wrapperStyle={{ fontSize: 12 }} />
             <Line type="stepAfter" dataKey="expected_kw" name="Scheduled (HEMS)" stroke="#0B1F3A" strokeDasharray="5 4" dot={false} />
-            <Line type="monotone" dataKey="measured_kw" name="Measured (charger API)" stroke="#14B8A6" strokeWidth={2} />
+            <Line type="monotone" dataKey="measured_kw" name="Measured (charger API)" stroke="#1E6FB8" strokeWidth={2} />
           </LineChart>
         </ResponsiveContainer>
       </CardBody>
@@ -440,7 +440,7 @@ function PowerChart({ d }: { d: CaseDetail }) {
 function DataModelPanel({ dm }: { dm: DataModel }) {
   return (
     <Card>
-      <CardHeader title="Data sources → unified data model" icon={<Database className="h-4 w-4 text-teal" />} right={<span className="text-[11px] text-slate-400">source-native schemas mapped through verified identifiers</span>} />
+      <CardHeader title="Data sources → unified data model" icon={<Database className="h-4 w-4 text-sky" />} right={<span className="text-[11px] text-slate-400">source-native schemas mapped through verified identifiers</span>} />
       <CardBody className="space-y-5">
         <div>
           <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -450,7 +450,7 @@ function DataModelPanel({ dm }: { dm: DataModel }) {
             {dm.identity_chain.map((c, i) => (
               <div key={i} className="flex items-center gap-1.5">
                 <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-                  <div className="text-[10px] font-semibold uppercase tracking-wide text-teal-700">{c.system}</div>
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-sky-700">{c.system}</div>
                   <div className="font-mono text-xs">{c.id}</div>
                   <div className="max-w-[170px] text-[11px] leading-tight text-slate-500">{c.label}</div>
                 </div>
@@ -471,7 +471,7 @@ function DataModelPanel({ dm }: { dm: DataModel }) {
                   <div className="my-1 flex items-center gap-1 text-[10px] text-slate-400">
                     <ArrowRight className="h-3 w-3" /> {t.rule}
                   </div>
-                  <div className="font-mono text-[11px] text-teal-700">{t.canonical}</div>
+                  <div className="font-mono text-[11px] text-sky-700">{t.canonical}</div>
                 </div>
               ))}
             </div>
@@ -487,7 +487,7 @@ function DataModelPanel({ dm }: { dm: DataModel }) {
                       <td className="py-1 pr-2">{SOURCE_SHORT[m.source_system]}</td>
                       <td className="py-1 pr-2 font-mono">{m.source_device_id}</td>
                       <td className="py-1 pr-2 text-slate-500">{m.mapping_method.replace(/_/g, " ")}</td>
-                      <td className="py-1">{m.verified ? <CheckCircle2 className="h-3.5 w-3.5 text-teal" /> : <XCircle className="h-3.5 w-3.5 text-red-500" />}</td>
+                      <td className="py-1">{m.verified ? <CheckCircle2 className="h-3.5 w-3.5 text-sky" /> : <XCircle className="h-3.5 w-3.5 text-red-500" />}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -531,7 +531,7 @@ function EvidenceTable({ d }: { d: CaseDetail }) {
     <Card>
       <CardHeader
         title={`Evidence records (${d.diagnosis!.evidence.length})`}
-        icon={<FileText className="h-4 w-4 text-teal" />}
+        icon={<FileText className="h-4 w-4 text-sky" />}
         right={d.consent && <span className="text-[11px] text-slate-500">Homeowner consent {d.consent.consent_id} · {fmtTime(d.consent.approved_at)}</span>}
       />
       <div className="overflow-x-auto">
@@ -548,7 +548,7 @@ function EvidenceTable({ d }: { d: CaseDetail }) {
           </thead>
           <tbody className="divide-y divide-slate-100">
             {d.diagnosis!.evidence.map((e) => (
-              <tr key={e.evidence_id} id={`ev-${e.evidence_id}`} className="target:bg-teal-50">
+              <tr key={e.evidence_id} id={`ev-${e.evidence_id}`} className="target:bg-sky-50">
                 {!demoMode && <td className="px-3 py-1.5 font-mono">{e.evidence_id}</td>}
                 <td className="px-3 py-1.5">{e.source_label}</td>
                 {!demoMode && <td className="px-3 py-1.5 font-mono text-slate-500">{e.source_record_id}</td>}
@@ -557,7 +557,7 @@ function EvidenceTable({ d }: { d: CaseDetail }) {
                 <td className="px-3 py-1.5">
                   <div className="flex gap-1">
                     <Badge tone={visTone[e.visibility_level]}>{visLabel[e.visibility_level]}</Badge>
-                    {shared.has(e.evidence_id) && <Badge tone="teal">shared by homeowner</Badge>}
+                    {shared.has(e.evidence_id) && <Badge tone="sky">shared by homeowner</Badge>}
                   </div>
                 </td>
               </tr>
@@ -599,7 +599,7 @@ function Copilot({ d, onAsked }: { d: CaseDetail; onAsked: () => void }) {
 
   return (
     <Card className="flex max-h-[640px] flex-col">
-      <CardHeader title="Support copilot" icon={<MessageSquare className="h-4 w-4 text-teal" />} right={<span className="text-[11px] text-slate-400">answers cite agent evidence</span>} />
+      <CardHeader title="Support copilot" icon={<MessageSquare className="h-4 w-4 text-sky" />} right={<span className="text-[11px] text-slate-400">answers cite agent evidence</span>} />
       <div className="flex-1 space-y-3 overflow-y-auto px-4 py-3">
         {thread.map((m) => {
           const meta = extra[m.message];
@@ -616,8 +616,8 @@ function Copilot({ d, onAsked }: { d: CaseDetail; onAsked: () => void }) {
               </div>
             );
           return (
-            <div key={m.message_id} className="mr-4 rounded-lg bg-teal-50 px-3 py-2 text-sm">
-              <div className="mb-1 flex items-center gap-1 text-[11px] font-semibold text-teal-700">
+            <div key={m.message_id} className="mr-4 rounded-lg bg-sky-50 px-3 py-2 text-sm">
+              <div className="mb-1 flex items-center gap-1 text-[11px] font-semibold text-sky-700">
                 <Sparkles className="h-3 w-3" /> Copilot
               </div>
               {m.message}
@@ -634,7 +634,7 @@ function Copilot({ d, onAsked }: { d: CaseDetail; onAsked: () => void }) {
         })}
         {busy && (
           <div className="flex items-center gap-2 text-sm text-slate-500">
-            <Spinner className="text-teal" /> Orchestrator is consulting the agents…
+            <Spinner className="text-sky" /> Orchestrator is consulting the agents…
           </div>
         )}
         <div ref={end} />
@@ -642,7 +642,7 @@ function Copilot({ d, onAsked }: { d: CaseDetail; onAsked: () => void }) {
       <div className="border-t border-slate-100 p-3">
         <div className="mb-2 flex flex-wrap gap-1">
           {QUESTIONS.map((x) => (
-            <button key={x} disabled={busy} onClick={() => ask(x)} className="rounded-full border border-slate-200 px-2 py-0.5 text-[11px] text-slate-600 hover:border-teal hover:text-teal-700">
+            <button key={x} disabled={busy} onClick={() => ask(x)} className="rounded-full border border-slate-200 px-2 py-0.5 text-[11px] text-slate-600 hover:border-sky hover:text-sky-700">
               {x}
             </button>
           ))}
@@ -654,8 +654,8 @@ function Copilot({ d, onAsked }: { d: CaseDetail; onAsked: () => void }) {
             ask(q);
           }}
         >
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Ask a follow-up question…" className="flex-1 rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none focus:border-teal" />
-          <Button type="submit" variant="teal" disabled={busy || !q.trim()}>
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Ask a follow-up question…" className="flex-1 rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none focus:border-sky" />
+          <Button type="submit" variant="sky" disabled={busy || !q.trim()}>
             <Send className="h-4 w-4" />
           </Button>
         </form>
@@ -683,7 +683,7 @@ function Workflow({ d, reload }: { d: CaseDetail; reload: () => void }) {
 
   return (
     <Card>
-      <CardHeader title="Support workflow" icon={<Plug className="h-4 w-4 text-teal" />} right={<Badge tone={statusTone[d.case.status]}>{d.case.status}</Badge>} />
+      <CardHeader title="Support workflow" icon={<Plug className="h-4 w-4 text-sky" />} right={<Badge tone={statusTone[d.case.status]}>{d.case.status}</Badge>} />
       <CardBody className="space-y-4">
         <div className="grid grid-cols-2 gap-2">
           <Button variant="secondary" disabled={!!busy} onClick={() => run("draft", async () => setDraft((await api.draft(d.case.case_id)).draft))}>
@@ -697,7 +697,7 @@ function Workflow({ d, reload }: { d: CaseDetail; reload: () => void }) {
         {draft && (
           <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
             <div className="mb-1 flex items-center justify-between text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-              Customer response draft <Badge tone="teal">homeowner-safe facts only</Badge>
+              Customer response draft <Badge tone="sky">homeowner-safe facts only</Badge>
             </div>
             <textarea className="h-44 w-full resize-y rounded border border-slate-200 bg-white p-2 text-sm" defaultValue={draft} />
           </div>
@@ -749,7 +749,7 @@ function Workflow({ d, reload }: { d: CaseDetail; reload: () => void }) {
               if (note.trim()) run("note", () => api.note(d.case.case_id, note).then(() => setNote("")));
             }}
           >
-            <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Add an internal note" className="flex-1 rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none focus:border-teal" />
+            <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Add an internal note" className="flex-1 rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none focus:border-sky" />
             <Button type="submit" disabled={!note.trim() || !!busy}>Add</Button>
           </form>
         </div>

@@ -34,7 +34,7 @@ struct StatusPill: View {
     let status: String
     var color: Color {
         switch status {
-        case "New": return Theme.teal
+        case "New": return Theme.sky
         case "Investigating": return Theme.amber
         case "Escalated": return Theme.red
         default: return Theme.muted

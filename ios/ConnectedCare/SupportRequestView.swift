@@ -56,7 +56,7 @@ struct SupportRequestView: View {
                 SectionLabel(text: "Records that will be shared (\(p.evidenceToShare.count))", icon: "tray.full")
                 ForEach(p.evidenceToShare) { e in
                     HStack(alignment: .top, spacing: 8) {
-                        Image(systemName: "checkmark.circle.fill").foregroundColor(Theme.teal).font(.caption)
+                        Image(systemName: "checkmark.circle.fill").foregroundColor(Theme.sky).font(.caption)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(e.summary).font(.caption).foregroundColor(Theme.navy)
                             Text(e.sourceLabel).font(.caption2).foregroundColor(Theme.muted)
@@ -79,7 +79,7 @@ struct SupportRequestView: View {
                 Text("I approve sharing this summary and these records with HelioHEMS Support.")
                     .font(.subheadline).foregroundColor(Theme.navy)
             }
-            .tint(Theme.teal)
+            .tint(Theme.sky)
             .card()
 
             if let e = error {
@@ -90,20 +90,22 @@ struct SupportRequestView: View {
                 Task { await submit() }
             } label: {
                 HStack {
-                    if submitting { ProgressView().tint(.white) }
+                    if submitting { ProgressView().tint(Theme.peachInk) }
                     Text("Send to support").font(.headline)
                 }
                 .frame(maxWidth: .infinity).padding(.vertical, 8)
+                .foregroundStyle(Theme.peachInk)
             }
             .buttonStyle(.borderedProminent)
-            .tint(Theme.navy)
+            .buttonBorderShape(.capsule)
+            .tint(Theme.peach)
             .disabled(!approved || submitting)
         }
     }
 
     private func success(_ r: HandoffResult) -> some View {
         VStack(spacing: 14) {
-            Image(systemName: "checkmark.circle.fill").font(.system(size: 56)).foregroundColor(Theme.teal)
+            Image(systemName: "checkmark.circle.fill").font(.system(size: 56)).foregroundColor(Theme.sky)
             Text("Case \(r.caseId) created").font(.title3.weight(.bold)).foregroundColor(Theme.navy)
             Text(r.title).font(.subheadline).foregroundColor(Theme.muted).multilineTextAlignment(.center)
             Text("A HelioHEMS specialist can now see the diagnosis and the \(r.sharedEvidenceIds.count) records you shared. You'll hear back in the app.")

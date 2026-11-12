@@ -8,7 +8,7 @@ struct ConnectedCareApp: App {
         WindowGroup {
             RootView()
                 .environmentObject(app)
-                .tint(Theme.teal)
+                .tint(Theme.sky)
         }
     }
 }
