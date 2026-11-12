@@ -50,7 +50,6 @@ struct HomeView: View {
                 Text(o.address).font(.caption).foregroundColor(Theme.muted)
             }
             Spacer()
-            SyntheticBadge()
         }
     }
 
@@ -208,7 +207,7 @@ struct ScenarioMenu: View {
     var body: some View {
         Menu {
             if let demo = app.demo {
-                Section("Demo scenario") {
+                Section("Presenter: scenario") {
                     ForEach(demo.scenarios) { s in
                         Button {
                             Task { await app.switchScenario(s.code) }
@@ -221,12 +220,12 @@ struct ScenarioMenu: View {
                         }
                     }
                 }
-                Text("AI mode: \(demo.aiMode)")
             }
             Button("Server settings…") { showSettings = true }
         } label: {
-            Label("Demo", systemImage: "slider.horizontal.3")
+            Image(systemName: "gearshape")
         }
+        .accessibilityLabel("Settings")
         .sheet(isPresented: $showSettings) { SettingsView() }
     }
 }

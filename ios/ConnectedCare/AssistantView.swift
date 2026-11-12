@@ -41,7 +41,6 @@ struct AssistantView: View {
                 Image(systemName: "sparkles").foregroundColor(Theme.sky)
                 Text("Helio Assistant").font(.headline).foregroundColor(Theme.navy)
                 Spacer()
-                SyntheticBadge()
             }
             Text("I check your home's actual records (schedule, battery level, charger status) before answering.")
                 .font(.subheadline).foregroundColor(Theme.muted)

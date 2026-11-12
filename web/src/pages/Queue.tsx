@@ -59,7 +59,7 @@ export default function Queue() {
                 <div className="mt-1 text-sm font-medium">{c.title}</div>
                 <div className="mt-0.5 text-xs text-slate-500">
                   {c.customer_name} · {c.origin === "homeowner_app" ? "via Helio app" : "CRM import"}
-                  {c.scenario !== "-" && ` · scenario ${c.scenario}`}
+
                 </div>
               </button>
             </li>

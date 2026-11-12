@@ -137,7 +137,7 @@ function TopBar({ d, reload }: { d: CaseDetail; reload: () => void }) {
         </Badge>
       )}
       {!d.case.live_data_matches && d.case.origin === "homeowner_app" && (
-        <Badge tone="amber">Showing snapshot from handoff (live demo data is on another scenario)</Badge>
+        <Badge tone="amber">Showing the snapshot saved at handoff</Badge>
       )}
       <div className="ml-auto flex items-center gap-1 rounded-lg border border-slate-200 bg-white p-1">
         {(["New", "Investigating", "Escalated", "Resolved"] as CaseStatus[]).map((s) => (

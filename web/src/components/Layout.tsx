@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, Outlet } from "react-router-dom";
-import { Activity, Bot, Cpu } from "lucide-react";
+import { Activity } from "lucide-react";
 import { api, type DemoState } from "@/lib/api";
-import { Badge, SyntheticLabel } from "@/components/ui";
 
 let demoOnce: Promise<DemoState> | null = null;
 
@@ -15,6 +14,38 @@ export function useDemoMode(): boolean {
   return on;
 }
 
+/**
+ * Presenter-only scenario switch, invisible on screen: press Shift+Alt+A..E, or open any page with
+ * ?scenario=D. Fires "cc:scenario" so open pages reload their data.
+ */
+export function useHiddenScenarioSwitch(onChange?: () => void) {
+  useEffect(() => {
+    const apply = async (code: string) => {
+      await api.setScenario(code);
+      onChange?.();
+      window.dispatchEvent(new Event("cc:scenario"));
+    };
+    const params = new URLSearchParams(window.location.search);
+    const fromUrl = params.get("scenario")?.toUpperCase();
+    if (fromUrl && /^[A-E]$/.test(fromUrl)) {
+      params.delete("scenario");
+      const q = params.toString();
+      window.history.replaceState(null, "", window.location.pathname + (q ? `?${q}` : ""));
+      apply(fromUrl);
+    }
+    const onKey = (e: KeyboardEvent) => {
+      const m = /^Key([A-E])$/.exec(e.code);
+      if (m && e.shiftKey && e.altKey && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault();
+        apply(m[1]);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+}
+
 export function useDemo() {
   const [demo, setDemo] = useState<DemoState | null>(null);
   const reload = () => api.demo().then(setDemo).catch(() => setDemo(null));
@@ -25,16 +56,7 @@ export function useDemo() {
 }
 
 export default function Layout() {
-  const { demo, reload } = useDemo();
-  const [switching, setSwitching] = useState(false);
-
-  const change = async (code: string) => {
-    setSwitching(true);
-    await api.setScenario(code);
-    await reload();
-    setSwitching(false);
-    window.dispatchEvent(new Event("cc:scenario"));
-  };
+  useHiddenScenarioSwitch();
 
   return (
     <div className="min-h-screen">
@@ -49,32 +71,9 @@ export default function Layout() {
               <div className="text-[11px] text-slate-300">HelioHEMS Support Console</div>
             </div>
           </Link>
-          <div className="ml-auto flex flex-wrap items-center gap-3 text-xs">
-            <Link to="/app" className="rounded-md bg-sky px-2 py-1 font-medium text-white hover:bg-sky-600">Homeowner app</Link>
-            <SyntheticLabel />
-            {demo && (
-              <Badge tone={demo.ai_mode === "claude" ? "sky" : "slate"} className="bg-white/10 text-white ring-white/20">
-                {demo.ai_mode === "claude" ? <Bot className="h-3 w-3" /> : <Cpu className="h-3 w-3" />}
-                {demo.ai_mode === "claude" ? (demo.model ? `Claude · ${demo.model}` : "Claude") : demo.demo_mode ? "AI assistant" : "Offline deterministic mode"}
-              </Badge>
-            )}
-            {demo && (
-              <label className="flex items-center gap-2 text-slate-300">
-                Demo scenario
-                <select
-                  className="rounded-md border border-white/20 bg-navy-800 px-2 py-1 text-white"
-                  value={demo.scenario}
-                  disabled={switching}
-                  onChange={(e) => change(e.target.value)}
-                >
-                  {demo.scenarios.map((s) => (
-                    <option key={s.code} value={s.code}>
-                      {s.code}: {s.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
+          <div className="ml-auto flex items-center gap-2 text-xs text-slate-300">
+            <div className="grid h-7 w-7 place-items-center rounded-full bg-white/10 text-[11px] font-semibold text-white">SA</div>
+            Support agent
           </div>
         </div>
       </header>

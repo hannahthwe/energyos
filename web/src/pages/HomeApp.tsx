@@ -2,11 +2,10 @@
 // Xcode. It only calls /api/home/* as the homeowner role; the backend decides
 // what the homeowner may see.
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
 import { BatteryCharging, ChevronRight, Home, LifeBuoy, Lock, PiggyBank, Send, ShieldCheck, X, Zap, HeartHandshake } from "lucide-react";
-import { api, type DataConsent, type DemoState, type Evidence } from "@/lib/api";
-import { useDemoMode } from "@/components/Layout";
-import { Button, Spinner, SyntheticLabel } from "@/components/ui";
+import { type DataConsent, type Evidence } from "@/lib/api";
+import { useDemoMode, useHiddenScenarioSwitch } from "@/components/Layout";
+import { Button, Spinner } from "@/components/ui";
 import { cn } from "@/lib/utils";
 
 interface Overview {
@@ -70,7 +69,6 @@ const SUGGESTIONS = [
 const eur = (v: number | null | undefined) => (v == null ? "–" : `€${v.toFixed(2)}`);
 
 export default function HomeApp() {
-  const [demo, setDemo] = useState<DemoState | null>(null);
   const [ov, setOv] = useState<Overview | null>(null);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [q, setQ] = useState("");
@@ -84,7 +82,6 @@ export default function HomeApp() {
   const end = useRef<HTMLDivElement>(null);
 
   const load = () => {
-    api.demo().then(setDemo).catch(() => setDemo(null));
     home<Overview>("/api/home/overview").then(setOv).catch(() => setOv(null));
     home<Savings>("/api/home/savings?window=7d").then(setSavings).catch(() => setSavings(null));
   };
@@ -116,11 +113,11 @@ export default function HomeApp() {
     }
   };
 
-  const changeScenario = async (code: string) => {
-    await api.setScenario(code);
+  useHiddenScenarioSwitch(() => {
     setTurns([]);
     load();
-  };
+  });
+
 
   const openConsent = async (run_id: string) => {
     setApproved(false);
@@ -135,22 +132,9 @@ export default function HomeApp() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-200 py-6">
-      <div className="mx-auto mb-3 flex max-w-[420px] flex-wrap items-center justify-between gap-2 px-4 text-xs text-slate-600">
-        <span>Homeowner app (web preview of the iOS app)</span>
-        {demo && (
-          <select className="rounded border border-slate-300 bg-white px-2 py-1" value={demo.scenario} onChange={(e) => changeScenario(e.target.value)}>
-            {demo.scenarios.map((s) => (
-              <option key={s.code} value={s.code}>
-                Scenario {s.code}: {s.name}
-              </option>
-            ))}
-          </select>
-        )}
-        <Link to="/support" className="font-medium text-sky-700 underline">Open support console →</Link>
-      </div>
-
-      <div className="relative mx-auto flex h-[780px] max-w-[400px] flex-col overflow-hidden rounded-[2.2rem] border-[10px] border-navy bg-cream shadow-xl">
+    <div className="min-h-[100dvh] bg-slate-200 sm:py-6">
+      {/* Full screen on a phone; shown inside a phone frame on a laptop. */}
+      <div className="relative mx-auto flex h-[100dvh] w-full flex-col overflow-hidden bg-cream sm:h-[780px] sm:max-w-[400px] sm:rounded-[2.2rem] sm:border-[10px] sm:border-navy sm:shadow-xl">
         <header className="flex items-center gap-2 bg-navy px-4 py-3 text-white">
           <div className="grid h-7 w-7 place-items-center rounded-full bg-sky-300"><HeartHandshake className="h-4 w-4" /></div>
           <div className="leading-tight">
@@ -160,7 +144,6 @@ export default function HomeApp() {
           <button onClick={openPrivacy} className="ml-auto rounded-md p-1 text-slate-300 hover:bg-white/10 hover:text-white" aria-label="Data & privacy" title="Data & privacy">
             <Lock className="h-4 w-4" />
           </button>
-          <SyntheticLabel />
         </header>
 
         <div className="flex-1 space-y-3 overflow-y-auto p-3">
@@ -364,7 +347,7 @@ function AnswerCard({ a, caseId, onSupport }: { a: HomeAnswer; caseId?: string; 
       )}
       {caseId ? (
         <div className="rounded-lg bg-sky/10 p-2 text-sky-800">
-          Support request {caseId} sent. <Link to={`/support/cases/${caseId}`} className="underline">View it in the support console</Link>
+          Support request {caseId} sent. A HelioHEMS specialist will get back to you here.
         </div>
       ) : (
         a.support_recommended && (

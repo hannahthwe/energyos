@@ -41,7 +41,9 @@ The first run sets up Python and the web packages (a few minutes). After that it
 - **Phone shows "can't connect":** check that the phone and Mac are on the same Wi-Fi, the script is still running, and the macOS firewall isn't blocking Python (System Settings → Network → Firewall).
 - **"Address already in use":** something is already on port 8000. Stop it, or run `lsof -ti :8000 | xargs kill`.
 
-**Before you present:** start the script, open `/support` on the laptop and `/app` on the phone (or the iOS app), pick scenario **A** in the dashboard header, and follow the [demo script](#4-demo-script-35-minutes) below. Use two screens: the phone is the homeowner, the laptop is support.
+**Before you present:** start the script, open `/support` on the laptop and `/app` on the phone (or the iOS app), open `http://localhost:8000/support?scenario=A` once to start on scenario **A**, and follow the [demo script](#4-demo-script-35-minutes) below. Use two screens: the phone is the homeowner, the laptop is support.
+
+**Switching scenarios (presenter only):** there is no scenario selector on screen, so the apps look like a real product. Switch with **Shift+Alt+A … E** on any page (web), or open any page with `?scenario=D` added to the link. In the iOS app it's under the gear icon → *Presenter: scenario*.
 
 The sections below describe each part on its own, for development.
 
@@ -104,7 +106,7 @@ With a free Apple ID the app stays installed for 7 days; run it from Xcode again
 
 ## 4. Demo script (3–5 minutes)
 
-1. **iPhone → Home** (iOS app, or `/app` in Safari). SOC ring, reserve marker, V2H status, charger online. Tap *Demo* and pick scenario **A**.
+1. **iPhone → Home** (iOS app, or `/app` in Safari). SOC ring, reserve marker, V2H status, charger online. Make sure scenario **A** is active (Shift+Alt+A on the laptop, or the gear icon in iOS).
 2. **Assistant:** "Why didn't my EV discharge last night?" The answer explains that the car was below the 40% reserve and that nothing is broken. The answer comes from the home's records. No support needed.
 3. Switch to scenario **B** and ask again. The charger rejected the request, and the app says plainly that the reason isn't visible. Tap **Request support**. The consent screen lists exactly which records will be shared. Approve it.
 4. **Web `/support`:** the new case appears in the queue with its CRM profile, installation, devices and history. Open the **AI investigation**.
