@@ -141,9 +141,16 @@ def test_home_savings_endpoint(s):
     r = datamodel.home_savings(s, "7d")
     assert r["contract_type"] == "dynamic" and len(r["sessions"]) == 2
     assert r["actual_eur"] == 13.65 and r["saving_eur"] == 6.11 and r["complete"]
+    night = r["price_night"]
+    assert (night["from"], night["to"]) == ("17:00", "07:00") and len(night["hours"]) == 14
+    by = {h["time"]: h for h in night["hours"]}
+    assert night["peak"]["time"] == "18:00" and by["18:00"]["market_eur_kwh"] == 0.254
+    assert by["18:00"]["price_eur_kwh"] == 0.394 and by["18:00"]["charged_kwh"] == 7.4  # spot + 0.14 markup
+    assert [h["time"] for h in night["hours"] if h["cheapest"]] == ["02:00", "03:00", "04:00"]
     scenario(s, "A")
     r = datamodel.home_savings(s, "7d")
     assert r["contract_type"] == "fixed" and r["sessions"] == [] and "No EV charging" in r["tip"]
+    assert r["price_night"]["fixed_price_eur_kwh"] == 0.32 and len(r["price_night"]["hours"]) == 14
 
 
 # --------------------------------------------------------------- consents

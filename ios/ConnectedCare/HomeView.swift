@@ -258,6 +258,7 @@ struct SavingsCard: View {
                         .font(.caption).foregroundColor(Theme.muted)
                 }
             }
+            if let n = savings.priceNight, !n.hours.isEmpty { PriceChart(night: n) }
             Text(savings.tip).font(.subheadline).foregroundColor(Theme.navy)
             if !savings.unavailableSources.isEmpty {
                 Button("Open Data & privacy", action: openPrivacy).font(.caption.weight(.semibold))
@@ -275,6 +276,51 @@ struct SavingsCard: View {
         .padding(.vertical, 8)
         .background(accent ? Theme.skySoft : Theme.page)
         .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+}
+
+struct PriceChart: View {
+    let night: PriceNight
+
+    private var dynamic: Bool { night.contractType == "dynamic" }
+    private func value(_ h: PriceNight.Hour) -> Double { dynamic ? (h.priceEurKwh ?? h.marketEurKwh) : h.marketEurKwh }
+    private func color(_ h: PriceNight.Hour) -> Color { h.chargedKwh > 0 ? Theme.peach : h.cheapest ? Theme.sky : Color.gray.opacity(0.3) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Prices \(night.from)–\(night.to)").font(.subheadline.weight(.semibold)).foregroundColor(Theme.navy)
+                Spacer()
+                Text(dynamic ? "your price, €/kWh" : "market price, €/kWh").font(.caption2).foregroundColor(Theme.muted)
+            }
+            Chart(night.hours) { h in
+                BarMark(x: .value("Hour", h.time), y: .value("€/kWh", value(h)))
+                    .foregroundStyle(color(h))
+                    .cornerRadius(3)
+            }
+            .chartXAxis {
+                AxisMarks(values: night.hours.enumerated().filter { $0.offset % 3 == 0 }.map { $0.element.time })
+            }
+            .frame(height: 110)
+            HStack(spacing: 10) {
+                if night.hours.contains(where: { $0.chargedKwh > 0 }) { legend(Theme.peach, "you charged") }
+                if night.hours.contains(where: { $0.cheapest }) { legend(Theme.sky, "cheapest hours") }
+                if let p = night.peak, let l = night.lowest {
+                    Text(String(format: "Peak %@ €%.2f · lowest %@ €%.2f", p.time, value(p), l.time, value(l)))
+                        .font(.caption2).foregroundColor(Theme.muted)
+                }
+            }
+            if !dynamic, let f = night.fixedPriceEurKwh {
+                Text(String(format: "You pay a fixed €%.2f/kWh whatever the market price.", f)).font(.caption2).foregroundColor(Theme.muted)
+            }
+        }
+    }
+
+    private func legend(_ c: Color, _ label: String) -> some View {
+        HStack(spacing: 4) {
+            RoundedRectangle(cornerRadius: 2).fill(c).frame(width: 8, height: 8)
+            Text(label).font(.caption2).foregroundColor(Theme.muted)
+        }
     }
 }
 

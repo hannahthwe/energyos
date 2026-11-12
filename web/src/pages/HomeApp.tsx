@@ -7,6 +7,7 @@ import { type DataConsent, type Evidence } from "@/lib/api";
 import { useDemoMode, useHiddenScenarioSwitch } from "@/components/Layout";
 import { Button, Spinner } from "@/components/ui";
 import { cn } from "@/lib/utils";
+import { Bar, BarChart, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 interface Overview {
   customer_first_name: string;
@@ -45,6 +46,26 @@ interface Savings {
   sessions: { date: string; start: string; end: string; actual_eur: number | null; cheapest_eur: number | null; cheapest_hours: string[]; departure: string | null }[];
   tip: string;
   unavailable_sources: string[];
+  price_night: PriceNight;
+}
+
+interface PriceHour {
+  time: string;
+  market_eur_kwh: number;
+  price_eur_kwh: number | null;
+  charged_kwh: number;
+  cheapest: boolean;
+}
+
+interface PriceNight {
+  date: string;
+  from: string;
+  to: string;
+  contract_type: "fixed" | "dynamic" | null;
+  fixed_price_eur_kwh: number | null;
+  peak: PriceHour | null;
+  lowest: PriceHour | null;
+  hours: PriceHour[];
 }
 
 type Turn = { kind: "q"; text: string } | { kind: "a"; data: HomeAnswer } | { kind: "err"; text: string };
@@ -258,11 +279,64 @@ function SavingsCard({ s, onPrivacy }: { s: Savings; onPrivacy: () => void }) {
           )}
         </>
       ) : null}
+      {s.price_night?.hours.length > 0 && <PriceChart n={s.price_night} />}
       <p className="mt-2">{s.tip}</p>
       {s.unavailable_sources.length > 0 && (
         <button onClick={onPrivacy} className="mt-1 text-[11px] font-medium text-sky-700 underline">Open Data &amp; privacy</button>
       )}
     </div>
+  );
+}
+
+const PEACH = "#F4A58A";
+const DEEP_BLUE = "#1E6FB8";
+const IDLE = "#CBD5E1";
+
+function PriceChart({ n }: { n: PriceNight }) {
+  const dynamic = n.contract_type === "dynamic";
+  const data = n.hours.map((h) => ({ ...h, value: dynamic && h.price_eur_kwh != null ? h.price_eur_kwh : h.market_eur_kwh }));
+  const charged = n.hours.some((h) => h.charged_kwh > 0);
+  const val = (h: PriceHour | null) => (h ? (dynamic && h.price_eur_kwh != null ? h.price_eur_kwh : h.market_eur_kwh) : 0);
+  return (
+    <div className="mt-3">
+      <div className="flex items-baseline justify-between">
+        <span className="font-medium text-navy">Prices {n.date.slice(8, 10)}/{n.date.slice(5, 7)}, {n.from}–{n.to}</span>
+        <span className="text-[10px] text-slate-400">{dynamic ? "your price, €/kWh" : "market price, €/kWh"}</span>
+      </div>
+      <div className="h-28">
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={data} margin={{ top: 6, right: 0, left: -28, bottom: 0 }}>
+            <XAxis dataKey="time" tick={{ fontSize: 9 }} interval={2} tickLine={false} axisLine={false} />
+            <YAxis tick={{ fontSize: 9 }} tickLine={false} axisLine={false} tickFormatter={(v: number) => v.toFixed(2)} />
+            <Tooltip formatter={(v: number) => [`€${v.toFixed(3)}/kWh`, "Price"]} labelStyle={{ fontSize: 11 }} contentStyle={{ fontSize: 11 }} />
+            <Bar dataKey="value" radius={[3, 3, 0, 0]}>
+              {data.map((h) => (
+                <Cell key={h.time} fill={h.charged_kwh > 0 ? PEACH : h.cheapest ? DEEP_BLUE : IDLE} />
+              ))}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+      <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-slate-500">
+        {charged && <Swatch c={PEACH} label="you charged" />}
+        {n.hours.some((h) => h.cheapest) && <Swatch c={DEEP_BLUE} label="cheapest hours" />}
+        <span>
+          Peak {n.peak?.time} €{val(n.peak).toFixed(2)} · lowest {n.lowest?.time} €{val(n.lowest).toFixed(2)}
+        </span>
+      </div>
+      {n.contract_type === "fixed" && n.fixed_price_eur_kwh != null && (
+        <p className="mt-1 text-[10px] text-slate-500">You pay a fixed €{n.fixed_price_eur_kwh.toFixed(2)}/kWh whatever the market price.</p>
+      )}
+    </div>
+  );
+}
+
+function Swatch({ c, label }: { c: string; label: string }) {
+  return (
+    <span className="inline-flex items-center gap-1">
+      <span className="inline-block h-2 w-2 rounded-sm" style={{ background: c }} />
+      {label}
+    </span>
   );
 }
 

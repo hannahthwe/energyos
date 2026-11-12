@@ -93,7 +93,7 @@ Base path `/api`. Interactive docs: `http://localhost:8000/docs` (FastAPI/OpenAP
 | GET | `/home/support-request/{run_id}/preview` | — | summary and the exact evidence list that would be shared |
 | POST | `/home/support-request` | `{"run_id": "...", "approved": true, "note": "..."}` | `case_id`, `status`, `title`. Returns `400` if `approved` is not `true` |
 | GET | `/home/cases` | — | the homeowner's cases and their current status |
-| GET | `/home/savings?window=7d` | `window` = `7d` or `1d` | Savings card: contract type, € paid, € cheapest possible, € saving, per-session cheapest hours, tip |
+| GET | `/home/savings?window=7d` | `window` = `7d` or `1d` | Savings card: contract type, € paid, € cheapest possible, € saving, per-session cheapest hours, tip, and `price_night`: hourly market and all-in prices from plug-in to departure, with the hours charged and the cheapest hours marked (shown as a price chart in the app) |
 | GET | `/home/consents` | — | Data & privacy list: one row per source with `active`, `legal_basis`, `scope`, `expires_at`, `revoked_at` |
 | POST | `/home/consents` | `{"source_system": "charger_integration"}` | grants (or returns the active) consent for that source |
 | POST | `/home/consents/{consent_id}/revoke` | — | revokes it; tools then report the source as unavailable |

@@ -185,4 +185,40 @@ def home_savings(s: Session, window: str = "7d") -> dict:
             "energy_kwh": r["total_energy_kwh"], "actual_eur": r["total_actual_eur"],
             "cheapest_eur": r["total_cheapest_eur"], "saving_eur": r["total_saving_eur"],
             "sessions": sessions, "tip": tip, "unavailable_sources": unavailable,
-            "evidence_count": len(r["evidence_ids"])}
+            "evidence_count": len(r["evidence_ids"]), "price_night": _price_night(s, r)}
+
+
+def _price_night(s: Session, r: dict) -> dict:
+    """Hourly prices for the last charging night (plug-in to departure), or last evening if there was none.
+    Market prices are public data; the all-in price needs the supplier contract."""
+    from datetime import timedelta
+
+    last = r["sessions"][-1] if r["sessions"] else None
+    if last and last["departure_utc"]:
+        start = T.parse(last["plug_in_utc"]).replace(minute=0, second=0)
+        end = T.parse(last["departure_utc"])
+    else:
+        start = DEMO_NOW_UTC.replace(day=DEMO_NOW_UTC.day - 1, hour=17, minute=0, second=0, microsecond=0)
+        end = start + timedelta(hours=14)
+    prices = T.get_price_series(s, T.Window(start, end))["prices"]
+    con = T.get_tariff_contract(s, state.INSTALLATION_ID)["contract"]
+    charged = {h["start_time_utc"]: h["kwh"] for h in (last or {}).get("actual_hours", [])}
+    cheapest = {h["start_time_utc"] for h in (last or {}).get("cheapest_hours", [])}
+
+    def all_in(market: float) -> float | None:
+        if not con:
+            return None
+        if con["contract_type"] == "fixed":
+            return con["fixed_price_eur_kwh"]
+        return round(market + (con["dynamic_markup_eur_kwh"] or 0.0), 4)
+
+    hours = [{"time": p["start_time_utc"][11:16], "market_eur_kwh": p["price_eur_kwh"],
+              "price_eur_kwh": all_in(p["price_eur_kwh"]), "charged_kwh": round(charged.get(p["start_time_utc"], 0.0), 2),
+              "cheapest": p["start_time_utc"] in cheapest} for p in prices]
+    peak = max(hours, key=lambda h: h["market_eur_kwh"]) if hours else None
+    low = min(hours, key=lambda h: h["market_eur_kwh"]) if hours else None
+    return {"date": start.strftime("%Y-%m-%d"), "from": start.strftime("%H:%M"), "to": end.strftime("%H:%M"),
+            "contract_type": con["contract_type"] if con else None,
+            "fixed_price_eur_kwh": con["fixed_price_eur_kwh"] if con and con["contract_type"] == "fixed" else None,
+            "markup_eur_kwh": con["dynamic_markup_eur_kwh"] if con and con["contract_type"] == "dynamic" else None,
+            "peak": peak, "lowest": low, "hours": hours}

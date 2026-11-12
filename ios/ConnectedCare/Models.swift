@@ -179,6 +179,27 @@ struct Savings: Codable {
     let tip: String
     let unavailableSources: [String]
     let evidenceCount: Int
+    let priceNight: PriceNight?
+}
+
+/// Hourly prices for the last charging night, with the hours charged and the cheapest hours marked.
+struct PriceNight: Codable {
+    struct Hour: Codable, Identifiable {
+        let time: String
+        let marketEurKwh: Double
+        let priceEurKwh: Double?
+        let chargedKwh: Double
+        let cheapest: Bool
+        var id: String { time }
+    }
+    let date: String
+    let from: String
+    let to: String
+    let contractType: String?
+    let fixedPriceEurKwh: Double?
+    let peak: Hour?
+    let lowest: Hour?
+    let hours: [Hour]
 }
 
 /// One row of the Data & privacy screen (GET /api/home/consents).
